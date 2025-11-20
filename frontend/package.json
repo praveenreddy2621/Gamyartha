@@ -1,0 +1,14 @@
+{
+  "name": "Gamyartha-frontend",
+  "version": "1.0.0",
+  "description": "Frontend for Gamyartha - AI Financial Companion",
+  "main": "app.js",
+  "scripts": {
+    "start": "python3 -m http.server 8000",
+    "dev": "python3 -m http.server 8000",
+    "build": "echo 'No build step required for vanilla JS'"
+  },
+  "keywords": ["finance", "budgeting", "ai", "webapp"],
+  "author": "Gamyartha Team",
+  "license": "MIT"
+}

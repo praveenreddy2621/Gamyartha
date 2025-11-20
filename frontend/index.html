@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gamyartha - AI Financial Companion</title>
+    <link rel="icon" href="data:,">
+
+    <!-- Link External CSS and Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="styles.css">
+
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+
+</head>
+<body>
+    <div id="app" class="p-0 min-h-screen bg-gray-50 flex justify-center w-full">
+        <div class="w-full max-w-lg">
+            
+            <!-- Alert Banner Container -->
+            <div id="alert-container"></div>
+
+            <!-- Header and User ID -->
+            <header class="bg-indigo-700 text-white p-4 shadow-xl sticky top-0 z-20">
+                <div class="flex items-center justify-between">
+                    <div class="logo-container">
+                        
+                        <div class="fluid-shape">
+                            <span class="g-letter">G</span>
+                        </div>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <button id="admin-btn" class="hidden text-xs bg-purple-600 hover:bg-purple-700 px-3 py-1 rounded-full font-medium transition duration-150">Admin</button>
+                        <button id="logout-btn" class="hidden text-xs bg-indigo-500 hover:bg-red-600 px-3 py-1 rounded-full font-medium transition duration-150">Logout</button>
+                    </div>
+                </div>
+                <!-- <h2 class="text-white text-sm font-semibold mt-1">Gamyartha</h2> -->
+                 <h2 class="text-white text-base font-bold mt-1 tracking-wide">Gamyartha</h2>
+
+
+                <div id="header-details" class="flex items-center justify-between text-xs opacity-80 mt-1">
+                    <p id="ledger-title" class="font-semibold truncate">My Private Ledger</p>
+                    <div class="flex items-center space-x-3">
+                        <!-- Language Selector -->
+                        <select id="language-selector" class="bg-indigo-600 text-white text-xs rounded-md p-1 border border-indigo-500">
+                            <option value="en">English</option>
+                            <option value="hi">हिन्दी</option>
+                            <option value="te">తెలుగు</option>
+                            <option value="ta">தமிழ்</option>
+                            <option value="kn">ಕನ್ನಡ</option>
+                        </select>
+                        
+                    </div>
+                </div>
+            </header>
+
+            <!-- Main Content Area -->
+            <main class="pb-4" id="main-content">
+                <!-- Content will be rendered here by JavaScript -->
+                <div class="flex items-center justify-center min-h-[50vh] text-xl text-indigo-600 font-medium">
+                    Initializing Gamyartha...
+                </div>
+            </main>
+        </div>
+    </div>
+    
+    <!-- Floating Action Button (FAB) for Chat -->
+    <div id="fab-container"></div>
+    
+    <!-- Chat Window Container -->
+    <div id="chat-window-container"></div>
+
+
+
+    <!-- Link External JavaScript (Module type is required for Firebase imports) -->
+    <script src="config.js"></script>
+    <script type="module" src="app.js"></script>
+</body>
+</html>

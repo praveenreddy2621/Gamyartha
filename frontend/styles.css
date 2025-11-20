@@ -1,0 +1,279 @@
+/* Global Font and Background */
+html, body {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    font-family: 'Inter', sans-serif;
+}
+
+/* Remove default background color */
+body {
+    background-color: transparent;
+}
+
+/* Main content styling */
+#main-content {
+    background-color: transparent;
+    width: 100%;
+    min-height: 100vh;
+}
+
+/* Custom styling for the Shared Ledger Toggle switch */
+.dot { 
+    transform: translateX(4px); 
+}
+input:checked ~ .dot { 
+    transform: translateX(1.5rem); 
+}
+
+/* Unique CSS for Auth Pages */
+.auth-card {
+    /* Subtle blue-to-white gradient background for depth */
+    background: linear-gradient(135deg, #ffffff 50%, #f9fafb 100%);
+    border: 1px solid #e5e7eb;
+    /* Soft shadow with an indigo accent */
+    box-shadow: 0 20px 25px -5px rgba(49, 46, 129, 0.1), 0 8px 10px -6px rgba(49, 46, 129, 0.1);
+}
+.auth-button {
+    transition: all 0.2s ease-in-out;
+}
+.auth-button:hover {
+    /* Hover effect for buttons */
+    box-shadow: 0 4px 6px -1px rgba(49, 46, 129, 0.2), 0 2px 4px -2px rgba(49, 46, 129, 0.2);
+}
+
+/* Chatbot bubble styles */
+/* User message styling */
+.user-bubble {
+    background-color: #3f51b5; /* Indigo/Blue */
+    color: white;
+    border-radius: 12px 12px 2px 12px; /* Pointed corner bottom-right */
+}
+/* AI message styling */
+.ai-bubble {
+    background-color: #f3f4f6;
+    color: #1f2937;
+    border-radius: 12px 12px 12px 2px; /* Pointed corner bottom-left */
+    border: 1px solid #e5e7eb;
+}
+
+/* Admin Panel Styles */
+.admin-tab {
+    transition: all 0.2s ease-in-out;
+}
+
+.admin-tab:hover {
+    background-color: #ffffff !important;
+    color: #374151 !important;
+}
+
+.admin-tab.active {
+    background-color: #ffffff !important;
+    color: #111827 !important;
+    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+}
+
+/* Admin table styles */
+.admin-table th {
+    background-color: #f9fafb;
+    border-bottom: 1px solid #e5e7eb;
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 0.75rem;
+    letter-spacing: 0.05em;
+    color: #6b7280;
+}
+
+.admin-table td {
+    border-bottom: 1px solid #f3f4f6;
+}
+
+.admin-table tr:hover {
+    background-color: #f9fafb;
+}
+
+/* Admin action buttons */
+.admin-action-btn {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+    border-radius: 0.25rem;
+    font-weight: 500;
+    transition: all 0.2s ease-in-out;
+}
+
+.admin-action-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+
+/* --- 3D Animation Keyframes --- */
+
+/* For the auth card appearing */
+@keyframes flipIn {
+    from {
+        transform: perspective(1000px) rotateY(90deg);
+        opacity: 0;
+    }
+    to {
+        transform: perspective(1000px) rotateY(0deg);
+        opacity: 1;
+    }
+}
+
+/* For the logout button disappearing */
+@keyframes flipOut {
+    from {
+        transform: perspective(500px) rotateY(0deg);
+        opacity: 1;
+    }
+    to {
+        transform: perspective(500px) rotateY(-90deg);
+        opacity: 0;
+    }
+}
+
+/* --- New 3D Animation for Cards --- */
+
+/* For cards flipping in from the top */
+@keyframes flipInX {
+    from {
+        transform: perspective(1000px) rotateX(-90deg);
+        opacity: 0;
+    }
+    to {
+        transform: perspective(1000px) rotateX(0deg);
+        opacity: 1;
+    }
+}
+
+.card-flip-animation {
+    animation: flipInX 0.6s ease-out backwards;
+}
+
+/* Fluid Logo Styles */
+:root {
+    --dark-bg: #0d1117; /* Dark grayish-blue */
+    --gradient-start: #6a11cb; /* Deep Violet */
+    --gradient-end: #2575fc;   /* Bright Blue */
+    --text-color: #e0e0e0;
+}
+
+.logo-container {
+    width: 60px;
+    height: 60px;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    /* Create a subtle background glow behind the icon */
+    background: radial-gradient(circle at center, rgba(106, 17, 203, 0.1) 0%, transparent 70%);
+    border-radius: 50%;
+}
+
+.fluid-shape {
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(45deg, var(--gradient-start), var(--gradient-end));
+    border-radius: 50% 30% 60% 40% / 40% 60% 30% 70%; /* Organic, blob-like shape */
+    animation: morph-g 8s ease-in-out infinite alternate,
+               color-shift 10s ease-in-out infinite;
+    filter: blur(1px) drop-shadow(0 0 15px rgba(37, 117, 252, 0.6)); /* Soft glow */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    overflow: hidden; /* Ensure G stays within bounds */
+}
+
+.g-letter {
+    font-size: 2.5rem;
+    font-weight: 700;
+    color: #ffffff;
+    position: relative;
+    z-index: 2;
+    text-shadow: 0 0 10px rgba(255, 255, 255, 0.7);
+    /* Add flex properties to ensure perfect centering */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+@keyframes morph-g {
+    0% { border-radius: 50% 30% 60% 40% / 40% 60% 30% 70%; transform: scale(1); }
+    25% { border-radius: 60% 40% 50% 50% / 50% 40% 60% 50%; transform: scale(1.05); }
+    50% { border-radius: 40% 70% 30% 60% / 70% 30% 60% 40%; transform: scale(0.98); }
+    75% { border-radius: 55% 45% 45% 55% / 45% 55% 55% 45%; transform: scale(1.03); }
+    100% { border-radius: 50% 30% 60% 40% / 40% 60% 30% 70%; transform: scale(1); }
+}
+
+@keyframes color-shift {
+    0% { background: linear-gradient(45deg, #6a11cb, #2575fc); }
+    33% { background: linear-gradient(45deg, #2575fc, #6a11cb); }
+    66% { background: linear-gradient(45deg, #00c6ff, #0072ff); } /* Lighter blue variant */
+    100% { background: linear-gradient(45deg, #6a11cb, #2575fc); }
+}
+
+/* FAB Tooltip Styles */
+.fab-tooltip {
+    position: absolute;
+    right: 70px; /* Position to the left of the FAB */
+    background-color: #ffffff;
+    color: #1e3a8a; /* Dark blue text */
+    padding: 8px 16px;
+    border-radius: 16px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    white-space: nowrap;
+    opacity: 1; /* Make it visible by default */
+    transform: translateX(0); /* Position it correctly by default */
+    transition: opacity 0.3s ease, transform 0.3s ease;
+    border: 1px solid #e5e7eb;
+    max-width: 200px; /* Max width for the tooltip */
+    overflow: hidden; /* Hide overflowing text */
+    pointer-events: none; /* Keep this so it doesn't block clicks on elements behind it */
+}
+
+/* Show tooltip on group hover of the wrapper */
+.group:hover .fab-tooltip {
+    /* This rule is no longer needed for visibility but can be kept for consistency */
+}
+
+.fab-tooltip-text-container {
+    display: inline-block;
+    width: 100%;
+}
+
+.fab-tooltip-word {
+    display: inline-block;
+    font-weight: 600;
+    font-size: 0.875rem; /* text-sm */
+    opacity: 0;
+    animation: typing-fade-in 8s infinite;
+    animation-fill-mode: forwards;
+}
+
+
+
+@keyframes typing-fade-in {
+    0% { opacity: 0; transform: translateY(5px); }
+    6.25% { opacity: 1; transform: translateY(0); } /* Each word is visible for 1/16th of the time */
+    93.75% { opacity: 1; transform: translateY(0); }
+    100% { opacity: 0; transform: translateY(-5px); }
+}
+
+/* Chat Suggestion Chip Styles */
+.suggestion-chip {
+    background-color: #e0e7ff; /* Light indigo background */
+    color: #3730a3; /* Dark indigo text */
+    padding: 6px 12px;
+    border-radius: 16px; /* Pill shape */
+    font-size: 0.875rem; /* text-sm */
+    font-weight: 500;
+    border: 1px solid #c7d2fe; /* Slightly darker border */
+    cursor: pointer;
+    transition: background-color 0.2s ease, transform 0.2s ease;
+}
+
+.suggestion-chip:hover {
+    background-color: #c7d2fe; /* Darker on hover */
+    transform: translateY(-1px);
+}
