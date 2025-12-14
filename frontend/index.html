@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -8,15 +9,18 @@
 
     <!-- Link External CSS and Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js'></script>
     <link rel="stylesheet" href="styles.css">
 
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
 
 </head>
+
 <body>
     <div id="app" class="p-0 min-h-screen bg-gray-50 flex justify-center w-full">
-        <div class="w-full max-w-lg">
-            
+        <div class="w-full mx-auto max-w-full lg:max-w-7xl transition-all duration-300">
+
             <!-- Alert Banner Container -->
             <div id="alert-container"></div>
 
@@ -24,32 +28,90 @@
             <header class="bg-indigo-700 text-white p-4 shadow-xl sticky top-0 z-20">
                 <div class="flex items-center justify-between">
                     <div class="logo-container">
-                        
+
                         <div class="fluid-shape">
                             <span class="g-letter">G</span>
                         </div>
                     </div>
                     <div class="flex items-center space-x-2">
-                        <button id="admin-btn" class="hidden text-xs bg-purple-600 hover:bg-purple-700 px-3 py-1 rounded-full font-medium transition duration-150">Admin</button>
-                        <button id="logout-btn" class="hidden text-xs bg-indigo-500 hover:bg-red-600 px-3 py-1 rounded-full font-medium transition duration-150">Logout</button>
+                        <!-- Notification Bell -->
+                        <div id="notification-container" class="hidden relative">
+                            <button id="notification-btn"
+                                class="relative p-2 text-white hover:bg-indigo-600 rounded-full transition bg-indigo-800 shadow-sm">
+                                <!-- Bell Icon SVG -->
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24"
+                                    stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round"
+                                        d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                                </svg>
+                                <!-- Badge -->
+                                <span id="notification-badge"
+                                    class="hidden absolute -top-1 -right-1 inline-flex items-center justify-center px-2 py-1 text-xs font-bold leading-none text-white bg-red-500 rounded-full min-w-[20px] h-5 border-2 border-indigo-700"></span>
+                            </button>
+                            <!-- Dropdown -->
+                            <div id="notifications-dropdown"
+                                class="hidden fixed left-4 right-4 top-16 w-auto md:absolute md:left-auto md:right-0 md:top-full md:mt-2 md:w-80 bg-white rounded-lg shadow-xl z-50 max-h-[80vh] overflow-y-auto border border-gray-200 origin-top-right">
+                                <div class="p-3 border-b border-gray-200 flex justify-between items-center bg-gray-50">
+                                    <h3 class="text-sm font-semibold text-gray-800">Notifications</h3>
+                                    <button id="mark-all-read-btn"
+                                        class="text-xs text-indigo-600 hover:text-indigo-700 font-medium">Mark all
+                                        read</button>
+                                </div>
+                                <div id="notifications-list" class="divide-y divide-gray-100">
+                                    <div class="p-4 text-center text-gray-500 text-sm">No notifications</div>
+                                </div>
+                            </div>
+                        </div>
+                        <button id="admin-btn"
+                            class="hidden text-xs bg-purple-600 hover:bg-purple-700 px-3 py-1 rounded-full font-medium transition duration-150">Admin</button>
+                        <!-- Language Selector (Custom Dropdown) -->
+                        <div class="relative inline-block text-left" id="custom-language-selector">
+                            <button type="button" id="language-menu-btn"
+                                class="inline-flex justify-center items-center rounded-full border border-indigo-500 shadow-sm px-3 py-1 bg-indigo-600 text-xs font-medium text-white hover:bg-indigo-500 focus:outline-none transition-colors">
+                                <span id="current-lang-label">EN</span>
+                                <svg class="-mr-1 ml-1 h-3 w-3" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"
+                                    fill="currentColor" aria-hidden="true">
+                                    <path fill-rule="evenodd"
+                                        d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a-1 1 0 010-1.414z"
+                                        clip-rule="evenodd" />
+                                </svg>
+                            </button>
+
+                            <div id="language-dropdown-menu"
+                                class="hidden origin-top-right absolute right-0 mt-2 w-32 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 focus:outline-none z-50">
+                                <div class="py-1" role="menu" aria-orientation="vertical"
+                                    aria-labelledby="language-menu-btn">
+                                    <button
+                                        class="lang-option w-full text-left block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900"
+                                        role="menuitem" data-value="en">English</button>
+                                    <button
+                                        class="lang-option w-full text-left block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900"
+                                        role="menuitem" data-value="hi">हिन्दी</button>
+                                    <button
+                                        class="lang-option w-full text-left block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900"
+                                        role="menuitem" data-value="te">తెలుగు</button>
+                                    <button
+                                        class="lang-option w-full text-left block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900"
+                                        role="menuitem" data-value="ta">தமிழ்</button>
+                                    <button
+                                        class="lang-option w-full text-left block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900"
+                                        role="menuitem" data-value="kn">ಕನ್ನಡ</button>
+                                </div>
+                            </div>
+                        </div>
+                        <button id="logout-btn"
+                            class="hidden text-xs bg-indigo-500 hover:bg-red-600 px-3 py-1 rounded-full font-medium transition duration-150">Logout</button>
                     </div>
                 </div>
                 <!-- <h2 class="text-white text-sm font-semibold mt-1">Gamyartha</h2> -->
-                 <h2 class="text-white text-base font-bold mt-1 tracking-wide">Gamyartha</h2>
+                <h2 class="text-white text-base font-bold mt-1 tracking-wide">Gamyartha</h2>
 
 
                 <div id="header-details" class="flex items-center justify-between text-xs opacity-80 mt-1">
                     <p id="ledger-title" class="font-semibold truncate">My Private Ledger</p>
                     <div class="flex items-center space-x-3">
-                        <!-- Language Selector -->
-                        <select id="language-selector" class="bg-indigo-600 text-white text-xs rounded-md p-1 border border-indigo-500">
-                            <option value="en">English</option>
-                            <option value="hi">हिन्दी</option>
-                            <option value="te">తెలుగు</option>
-                            <option value="ta">தமிழ்</option>
-                            <option value="kn">ಕನ್ನಡ</option>
-                        </select>
-                        
+
+
                     </div>
                 </div>
             </header>
@@ -63,10 +125,10 @@
             </main>
         </div>
     </div>
-    
+
     <!-- Floating Action Button (FAB) for Chat -->
     <div id="fab-container"></div>
-    
+
     <!-- Chat Window Container -->
     <div id="chat-window-container"></div>
 
@@ -77,9 +139,11 @@
 
     <!-- Link External JavaScript (Module type is required for Firebase imports) -->
     <script src="config.js"></script>
+    <script src="js/notifications.js"></script>
     <script type="module" src="app.js"></script>
     <footer class="text-center text-gray-500 text-xs p-4 mt-8">
         &copy; 2025 Gamyartha. All rights reserved.
     </footer>
 </body>
+
 </html>

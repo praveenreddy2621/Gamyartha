@@ -12,6 +12,9 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const path = require('path');
 const fetch = require('node-fetch'); // Add this line to import node-fetch
+const helmet = require('helmet'); // Security headers
+const rateLimit = require('express-rate-limit'); // Rate limiting
+const { initRedis } = require('./utils/redisClient');
 require('dotenv').config();
 
 const app = express();
@@ -37,8 +40,38 @@ const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-t
 // Gemini API Key
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
-// Middleware
-app.use(cors());
+// Security Middleware
+app.use(helmet({
+    contentSecurityPolicy: false, // Disabled for now to allow inline scripts in frontend
+}));
+
+// Rate Limiting
+const apiLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 500, // Increased limit for dev usage
+    standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
+    legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+    message: 'Too many requests from this IP, please try again after 15 minutes'
+});
+
+// Stricter limiter for auth routes
+const authLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000, // 1 hour
+    max: 100, // Increased limit for testing
+    message: 'Too many accounts created from this IP, please try again after an hour'
+});
+
+// Apply global rate limiter to all api routes
+app.use('/api/', apiLimiter);
+// Apply strict limiter to auth routes (we'll apply this specifically later or globally to /api/auth if strictly separated)
+
+// CORS Configuration
+const corsOptions = {
+    origin: process.env.NODE_ENV === 'production' ? process.env.FRONTEND_URL : ['http://localhost:3000', 'http://localhost:3001', 'http://127.0.0.1:5500'], // Allow local dev
+    optionsSuccessStatus: 200
+};
+app.use(cors(corsOptions));
+
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
@@ -54,17 +87,25 @@ app.use((req, res, next) => {
 // Initialize service classes
 const BudgetService = require('./services/BudgetService');
 const AIReportService = require('./services/AIReportService');
+const GamificationService = require('./services/GamificationService');
+const RecurringTransactionService = require('./services/RecurringTransactionService');
 
 // Routes
 const splitsRouter = require('./routes/splits');
 const notificationsRouter = require('./routes/notifications'); // Import notifications router
 const groupsRouter = require('./routes/groups');
 const budgetsRouter = require('./routes/budgets'); // Import budgets router
+const adminRouter = require('./routes/admin'); // Import admin router
+const netWorthRouter = require('./routes/networth');
+const challengesRouter = require('./routes/challenges');
 
 app.use('/api/splits', splitsRouter);
 app.use('/api/notifications', notificationsRouter); // Use notifications router
+app.use('/api/networth', netWorthRouter);
+app.use('/api/challenges', challengesRouter);
 app.use('/api/groups', groupsRouter); // Use groups router
 app.use('/api/budgets', budgetsRouter); // Use budgets router
+app.use('/api/admin', adminRouter); // Use admin router
 
 console.log('✅ API routes (/api/splits, /api/notifications, /api/groups, /api/budgets) have been mounted.');
 
@@ -75,7 +116,10 @@ const mailerUtils = require('./utils/mailer.js');
 const authenticateToken = require('./middleware/auth');
 
 // Initialize AI Report Service
+// Initialize Services
 const aiReportService = new AIReportService(pool);
+const gamificationService = new GamificationService(pool);
+const recurringTransactionService = new RecurringTransactionService(pool);
 
 // Database initialization
 async function initializeDatabase() {
@@ -303,6 +347,54 @@ async function initializeDatabase() {
             )
         `);
 
+        // Recurring Transactions table
+        await dbConnection.execute(`
+            CREATE TABLE IF NOT EXISTS recurring_transactions (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id INT NOT NULL,
+                amount DECIMAL(15,2) NOT NULL,
+                description TEXT NOT NULL,
+                category VARCHAR(100) NOT NULL,
+                type ENUM('income', 'expense') NOT NULL,
+                frequency ENUM('daily', 'weekly', 'monthly', 'yearly') NOT NULL,
+                start_date DATE NOT NULL,
+                next_due_date DATE NOT NULL,
+                last_processed_date DATE,
+                is_active BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                INDEX idx_next_due (next_due_date, is_active)
+            )
+        `);
+
+        // Badges table
+        await dbConnection.execute(`
+            CREATE TABLE IF NOT EXISTS badges (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                code VARCHAR(50) UNIQUE NOT NULL,
+                name VARCHAR(100) NOT NULL,
+                description TEXT NOT NULL,
+                icon VARCHAR(20) NOT NULL,
+                criteria_type VARCHAR(50) NOT NULL,
+                criteria_threshold DECIMAL(15,2) DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+
+        // User Badges table
+        await dbConnection.execute(`
+            CREATE TABLE IF NOT EXISTS user_badges (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id INT NOT NULL,
+                badge_id INT NOT NULL,
+                awarded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                is_viewed BOOLEAN DEFAULT FALSE,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY (badge_id) REFERENCES badges(id) ON DELETE CASCADE,
+                UNIQUE KEY unique_user_badge (user_id, badge_id)
+            )
+        `);
+
         // Ensure the group_expenses.split_method ENUM includes 'settlement'
         await dbConnection.execute(`
             ALTER TABLE group_expenses
@@ -336,10 +428,10 @@ async function initializeDatabase() {
         // Create default admin user if it doesn't exist
         const defaultAdminEmail = 'praveenreddy2621@gmail.com';
         const defaultAdminPassword = 'Praveen@1626';
-        const defaultAdminName = 'Praveen Reddy'; // Renamed from Gamyartha to Gamyartha
+        const defaultAdminName = 'Praveen Reddy';
 
         const [existingAdmin] = await dbConnection.execute(
-            'SELECT id FROM users WHERE email = ?',
+            'SELECT id, is_admin FROM users WHERE email = ?',
             [defaultAdminEmail]
         );
 
@@ -360,7 +452,38 @@ async function initializeDatabase() {
                 [adminResult.insertId, JSON.stringify(['all'])]
             );
 
-            console.log('Default admin user created successfully'); // Renamed from Gamyartha to Gamyartha
+            console.log('Default admin user created successfully');
+        } else if (!existingAdmin[0].is_admin) {
+            // User exists but isn't admin - upgrade them
+            await dbConnection.execute(
+                'UPDATE users SET is_admin = TRUE WHERE id = ?',
+                [existingAdmin[0].id]
+            );
+            // Create admin permissions entry if missing
+            await dbConnection.execute(
+                'INSERT IGNORE INTO admins (user_id, permissions) VALUES (?, ?)',
+                [existingAdmin[0].id, JSON.stringify(['all'])]
+            );
+            console.log('Existing user upgraded to Admin');
+        }
+
+        // Insert default badges if they don't exist
+        const defaultBadges = [
+            { code: 'FIRST_LOGIN', name: 'Welcome Aboard', description: 'Joined DhanSarthi', icon: '🚀', type: 'login_count', threshold: 1 },
+            { code: 'FIRST_BUDGET', name: 'Planner', description: 'Created your first budget', icon: '📅', type: 'budget_count', threshold: 1 },
+            { code: 'SAVER_BRONZE', name: 'Bronze Saver', description: 'Saved ₹1,000 in goals', icon: '🥉', type: 'total_saved', threshold: 1000 },
+            { code: 'SAVER_SILVER', name: 'Silver Saver', description: 'Saved ₹10,000 in goals', icon: '🥈', type: 'total_saved', threshold: 10000 },
+            { code: 'SAVER_GOLD', name: 'Gold Saver', description: 'Saved ₹1,00,000 in goals', icon: '🥇', type: 'total_saved', threshold: 100000 },
+            { code: 'STREAK_7', name: 'Week Warrior', description: 'Logged in 7 days in a row', icon: '🔥', type: 'login_streak', threshold: 7 },
+            { code: 'DEBT_FREE', name: 'Debt Destroyer', description: 'Paid off an obligation', icon: '💸', type: 'obligation_paid', threshold: 1 }
+        ];
+
+        for (const badge of defaultBadges) {
+            await dbConnection.execute(
+                `INSERT IGNORE INTO badges (code, name, description, icon, criteria_type, criteria_threshold) 
+                 VALUES (?, ?, ?, ?, ?, ?)`,
+                [badge.code, badge.name, badge.description, badge.icon, badge.type, badge.threshold]
+            );
         }
 
         dbConnection.release();
@@ -372,7 +495,7 @@ async function initializeDatabase() {
 }
 
 // User registration (This section was previously inside the AI report route's 'try' block)
-app.post('/api/auth/register', async (req, res) => {
+app.post('/api/auth/register', authLimiter, async (req, res) => {
     try {
         const { email, password, full_name } = req.body;
 
@@ -432,6 +555,10 @@ app.post('/api/auth/register', async (req, res) => {
             user: { id: userId, email, full_name: full_name || email.split('@')[0] }
         });
 
+        // Award badge for joining
+        gamificationService.checkAndAwardBadges(userId, 'first_login', 1).catch(console.error);
+
+
     } catch (error) {
         console.error('Registration error:', error);
         res.status(500).json({ error: 'Registration failed' });
@@ -439,7 +566,7 @@ app.post('/api/auth/register', async (req, res) => {
 });
 
 // User login
-app.post('/api/auth/login', async (req, res) => {
+app.post('/api/auth/login', authLimiter, async (req, res) => {
     try {
         const { email, password } = req.body;
 
@@ -648,14 +775,48 @@ app.get('/api/user/profile', authenticateToken, async (req, res) => {
             'SELECT id, email, full_name, is_admin, email_verified, email_alerts_enabled, currency, created_at FROM users WHERE id = ?',
             [req.user.id]
         );
-        connection.release();
 
         if (users.length === 0) {
+            connection.release();
             return res.status(404).json({ error: 'User not found' });
         }
 
+        // Fetch user's badges (if table exists)
+        let badges = [];
+        try {
+            const [badgeResults] = await connection.execute(`
+                SELECT b.id, b.code, b.name, b.description, b.icon
+                FROM user_badges ub
+                JOIN badges b ON ub.badge_id = b.id
+                WHERE ub.user_id = ?
+            `, [req.user.id]);
+            badges = badgeResults;
+        } catch (badgeError) {
+            // Badges table doesn't exist or other error, just return empty array
+            console.log('Badges not available:', badgeError.message);
+        }
+
+        connection.release();
+
+        // Get current mode and group (using aiReportService which should be available in scope)
+        // If aiReportService is not defined in this scope, we instantiate it
+        // Assuming aiReportService is defined globally as seen in chat query route
+        let currentMode = 'private';
+        let currentGroup = null;
+        try {
+            currentMode = await aiReportService.getCurrentMode(req.user.id);
+            currentGroup = await aiReportService.getCurrentGroup(req.user.id);
+        } catch (e) {
+            console.log("Error fetching user settings", e);
+        }
+
         res.json({
-            user: users[0],
+            user: {
+                ...users[0],
+                current_mode: currentMode,
+                current_group: currentGroup
+            },
+            badges: badges,
             geminiApiKey: GEMINI_API_KEY
         });
 
@@ -701,6 +862,37 @@ app.put('/api/user/profile', authenticateToken, async (req, res) => {
     } catch (error) {
         console.error('Update profile error:', error);
         res.status(500).json({ error: 'Failed to update profile' });
+    }
+});
+
+// Delete user account
+app.delete('/api/user/profile', authenticateToken, async (req, res) => {
+    try {
+        const { email_confirmation } = req.body;
+        const userId = req.user.id;
+        const userEmail = req.user.email; // From token
+
+        // Basic verification
+        if (email_confirmation !== userEmail) {
+            return res.status(400).json({ error: 'Email confirmation does not match.' });
+        }
+
+        const connection = await pool.getConnection();
+
+        // Delete user (Cascading delete handles related data)
+        const [result] = await connection.execute('DELETE FROM users WHERE id = ?', [userId]);
+
+        connection.release();
+
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ error: 'User not found.' });
+        }
+
+        res.json({ message: 'Account deleted successfully.' });
+
+    } catch (error) {
+        console.error('Delete account error:', error);
+        res.status(500).json({ error: 'Failed to delete account.' });
     }
 });
 
@@ -818,6 +1010,44 @@ app.post('/api/transactions', authenticateToken, async (req, res) => {
     }
 });
 
+// Delete transaction
+app.delete('/api/transactions/:id', authenticateToken, async (req, res) => {
+    try {
+        const connection = await pool.getConnection();
+        const [result] = await connection.execute(
+            'DELETE FROM transactions WHERE id = ? AND user_id = ?',
+            [req.params.id, req.user.id]
+        );
+        connection.release();
+
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ error: 'Transaction not found' });
+        }
+
+        res.json({ message: 'Transaction deleted successfully' });
+    } catch (error) {
+        console.error('Delete transaction error:', error);
+        res.status(500).json({ error: 'Failed to delete transaction' });
+    }
+});
+
+// Clear all transactions
+app.delete('/api/transactions', authenticateToken, async (req, res) => {
+    try {
+        const connection = await pool.getConnection();
+        await connection.execute(
+            'DELETE FROM transactions WHERE user_id = ?',
+            [req.user.id]
+        );
+        connection.release();
+
+        res.json({ message: 'All transactions cleared successfully' });
+    } catch (error) {
+        console.error('Clear transactions error:', error);
+        res.status(500).json({ error: 'Failed to clear transactions' });
+    }
+});
+
 // Get goals
 app.get('/api/goals', authenticateToken, async (req, res) => {
     try {
@@ -878,9 +1108,55 @@ app.put('/api/goals/:id/progress', authenticateToken, async (req, res) => {
 
         res.json({ message: 'Goal progress updated' });
 
+        // Check for saver badges
+        const newBadges = await gamificationService.checkAndAwardBadges(req.user.id, 'total_saved');
+        if (newBadges.length > 0) {
+            // Can optionally send this back to frontend to show a popup
+            console.log(`User ${req.user.id} earned badges:`, newBadges.map(b => b.name));
+        }
+
     } catch (error) {
         console.error('Update goal progress error:', error);
         res.status(500).json({ error: 'Failed to update goal progress' });
+    }
+});
+
+// Delete a goal
+app.delete('/api/goals/:id', authenticateToken, async (req, res) => {
+    try {
+        const connection = await pool.getConnection();
+        const [result] = await connection.execute(
+            'DELETE FROM goals WHERE id = ? AND user_id = ?',
+            [req.params.id, req.user.id]
+        );
+        connection.release();
+
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ error: 'Goal not found' });
+        }
+
+        res.json({ message: 'Goal deleted successfully' });
+    } catch (error) {
+        console.error('Delete goal error:', error);
+        res.status(500).json({ error: 'Failed to delete goal' });
+    }
+});
+
+// Update a goal
+app.put('/api/goals/:id', authenticateToken, async (req, res) => {
+    try {
+        const { name, target_amount, target_date } = req.body;
+        const connection = await pool.getConnection();
+        await connection.execute(
+            'UPDATE goals SET name = ?, target_amount = ?, target_date = ? WHERE id = ? AND user_id = ?',
+            [name, target_amount, target_date, req.params.id, req.user.id]
+        );
+        connection.release();
+
+        res.json({ message: 'Goal updated successfully' });
+    } catch (error) {
+        console.error('Update goal error:', error);
+        res.status(500).json({ error: 'Failed to update goal' });
     }
 });
 
@@ -966,9 +1242,49 @@ app.put('/api/obligations/:id/pay', authenticateToken, async (req, res) => {
 
         res.json({ message: 'Obligation marked as paid' });
 
+        // Check for debt destroyer badge
+        gamificationService.checkAndAwardBadges(req.user.id, 'obligation_paid').catch(console.error);
+
     } catch (error) {
         console.error('Mark obligation paid error:', error);
         res.status(500).json({ error: 'Failed to mark obligation as paid' });
+    }
+});
+// Delete obligation
+app.delete('/api/obligations/:id', authenticateToken, async (req, res) => {
+    try {
+        const connection = await pool.getConnection();
+        const [result] = await connection.execute(
+            'DELETE FROM obligations WHERE id = ? AND user_id = ?',
+            [req.params.id, req.user.id]
+        );
+        connection.release();
+
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ error: 'Obligation not found' });
+        }
+
+        res.json({ message: 'Obligation deleted successfully' });
+    } catch (error) {
+        console.error('Delete obligation error:', error);
+        res.status(500).json({ error: 'Failed to delete obligation' });
+    }
+});
+
+// Clear all obligations
+app.delete('/api/obligations', authenticateToken, async (req, res) => {
+    try {
+        const connection = await pool.getConnection();
+        await connection.execute(
+            'DELETE FROM obligations WHERE user_id = ?',
+            [req.user.id]
+        );
+        connection.release();
+
+        res.json({ message: 'All obligations cleared successfully' });
+    } catch (error) {
+        console.error('Clear obligations error:', error);
+        res.status(500).json({ error: 'Failed to clear obligations' });
     }
 });
 
@@ -1070,8 +1386,7 @@ Provide specific, actionable advice for each category.
 
 
             // 4. Call Gemini API
-            // const geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${GEMINI_API_KEY}`, {
-               const geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${GEMINI_API_KEY}`, {
+            const geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${GEMINI_API_KEY}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -1152,7 +1467,7 @@ Active Goals: ${JSON.stringify(contextData.goals)}
         };
 
         // 5. Call Gemini API
-        const geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${GEMINI_API_KEY}`, {
+        const geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${GEMINI_API_KEY}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
@@ -1177,7 +1492,18 @@ Active Goals: ${JSON.stringify(contextData.goals)}
 app.post('/api/user/settings', authenticateToken, async (req, res) => {
     try {
         const { key, value } = req.body;
-        const result = await aiReportService.setCurrentMode(req.user.id, value);
+        let result = false;
+
+        if (key === 'current_mode') {
+            result = await aiReportService.setCurrentMode(req.user.id, value);
+        } else if (key === 'current_group') {
+            result = await aiReportService.setCurrentGroup(req.user.id, value);
+        } else {
+            // Generic setting fallback if generic method exists, or just log error
+            console.warn(`Attempt to set unknown setting: ${key}`);
+            return res.status(400).json({ error: 'Invalid setting key' });
+        }
+
         if (result) {
             res.json({ message: `Setting '${key}' updated successfully.` });
         } else {
@@ -1234,6 +1560,84 @@ app.post('/api/send-email', async (req, res) => {
     }
 });
 
+// --- NEW FEATURES ROUTES ---
+
+// Gamification: Get Badges
+app.get('/api/badges', authenticateToken, async (req, res) => {
+    try {
+        const badges = await gamificationService.getUserBadges(req.user.id);
+        res.json({ badges });
+    } catch (error) {
+        console.error('Get badges error:', error);
+        res.status(500).json({ error: 'Failed to fetch badges' });
+    }
+});
+
+// Recurring Transactions: Create
+app.post('/api/recurring', authenticateToken, async (req, res) => {
+    try {
+        const result = await recurringTransactionService.createRecurringTransaction(req.user.id, req.body);
+        res.status(201).json({ message: 'Recurring transaction created', id: result });
+    } catch (error) {
+        console.error('Create recurring error:', error);
+        res.status(500).json({ error: 'Failed to create recurring transaction' });
+    }
+});
+
+// Recurring Transactions: Get All
+app.get('/api/recurring', authenticateToken, async (req, res) => {
+    try {
+        const txns = await recurringTransactionService.getRecurringTransactions(req.user.id);
+        res.json({ recurring_transactions: txns });
+    } catch (error) {
+        console.error('Get recurring error:', error);
+        res.status(500).json({ error: 'Failed to fetch recurring transactions' });
+    }
+});
+// Recurring Transactions: Update
+app.put('/api/recurring/:id', authenticateToken, async (req, res) => {
+    try {
+        const success = await recurringTransactionService.updateRecurringTransaction(req.user.id, req.params.id, req.body);
+        if (success) {
+            res.json({ message: 'Recurring transaction updated' });
+        } else {
+            res.status(404).json({ error: 'Transaction not found or unauthorized' });
+        }
+    } catch (error) {
+        console.error('Update recurring error:', error);
+        res.status(500).json({ error: 'Failed to update recurring transaction' });
+    }
+});
+
+// Recurring Transactions: Delete
+app.delete('/api/recurring/:id', authenticateToken, async (req, res) => {
+    try {
+        const success = await recurringTransactionService.deleteRecurringTransaction(req.user.id, req.params.id);
+        if (success) {
+            res.json({ message: 'Recurring transaction deleted' });
+        } else {
+            res.status(404).json({ error: 'Transaction not found or unauthorized' });
+        }
+    } catch (error) {
+        console.error('Delete recurring error:', error);
+        res.status(500).json({ error: 'Failed to delete recurring transaction' });
+    }
+});
+
+// Recurring Transactions: Mark as Paid (for manual subscriptions)
+app.post('/api/recurring/:id/mark-paid', authenticateToken, async (req, res) => {
+    try {
+        const success = await recurringTransactionService.markAsPaid(req.user.id, req.params.id);
+        if (success) {
+            res.json({ message: 'Payment recorded successfully' });
+        } else {
+            res.status(404).json({ error: 'Subscription not found or unauthorized' });
+        }
+    } catch (error) {
+        console.error('Mark as paid error:', error);
+        res.status(500).json({ error: 'Failed to record payment' });
+    }
+});
 // Health check // Renamed from Gamyartha to Gamyartha
 app.get('/api/health', (req, res) => {
     res.json({ status: 'OK', message: 'Server is running' });
@@ -1263,6 +1667,9 @@ initializeDatabase().then(() => {
     } catch (error) {
         console.error('Mailer initialization failed:', error);
     }
+
+    // Initialize Redis
+    initRedis().catch(err => console.error('Redis init failed:', err));
 
     app.listen(PORT, () => {
         console.log(`Server running on port ${PORT}`);
@@ -1295,5 +1702,129 @@ cron.schedule('0 8 1 * *', () => {
 });
 
 console.log('✅ Monthly summary email scheduler started (runs 1st of every month at 8:00 AM IST)');
+
+// Recurring Transactions Scheduler: 0 5 0 * * * (Daily at 12:05 AM)
+cron.schedule('0 5 0 * * *', async () => {
+    console.log('🔄 Processing recurring transactions...');
+    try {
+        const count = await recurringTransactionService.processDueTransactions();
+        console.log(`✅ Processed ${count} recurring transactions.`);
+    } catch (error) {
+        console.error('❌ Error processing recurring transactions:', error);
+    }
+}, {
+    timezone: "Asia/Kolkata"
+});
+
+// Challenge Activator & Notifier: Runs every hour to check for new active challenges OR completed challenges
+cron.schedule('0 * * * *', async () => {
+    console.log('🔄 Checking for challenge updates...');
+    let connection;
+    try {
+        connection = await pool.getConnection();
+
+        // 1. ACTIVATE STARTING CHALLENGES
+        const [startingChallenges] = await connection.execute(`
+            SELECT * FROM savings_challenges 
+            WHERE status = 'upcoming' AND start_date <= CURDATE()
+        `);
+
+        if (startingChallenges.length > 0) {
+            console.log(`🚀 Found ${startingChallenges.length} challenges starting now.`);
+
+            for (const challenge of startingChallenges) {
+                await connection.execute('UPDATE savings_challenges SET status = "active" WHERE id = ?', [challenge.id]);
+
+                // Notify ALL users (broad announcement)
+                const [users] = await connection.execute('SELECT id FROM users');
+                if (users.length > 0) {
+                    const values = users.map(u => [
+                        u.id,
+                        'challenge_update',
+                        `🏁 Challenge Started: ${challenge.name}`,
+                        `The challenge "${challenge.name}" is now live! Join now to track your savings.`,
+                        null
+                    ]);
+                    await connection.query(
+                        'INSERT INTO notifications (user_id, type, title, message, split_request_id) VALUES ?',
+                        [values]
+                    );
+                }
+            }
+        }
+
+        // 2. COMPLETE EXPIRED CHALLENGES
+        const [expiredChallenges] = await connection.execute(`
+            SELECT * FROM savings_challenges 
+            WHERE status = 'active' AND end_date < CURDATE()
+        `);
+
+        if (expiredChallenges.length > 0) {
+            console.log(`🏁 Found ${expiredChallenges.length} challenges ending now.`);
+
+            for (const challenge of expiredChallenges) {
+                // Update status
+                await connection.execute('UPDATE savings_challenges SET status = "completed" WHERE id = ?', [challenge.id]);
+
+                // Determine Winner
+                let categoryFilter = "";
+                if (challenge.target_category !== 'total_spend') {
+                    // Note: In production, sanitize this input. Assuming internal ENUM values here are safe.
+                    categoryFilter = `AND t.category = '${challenge.target_category}'`;
+                }
+
+                // Query for winner: Lowest spend
+                const [leaderboard] = await connection.execute(`
+                    SELECT u.id, u.full_name, COALESCE(SUM(t.amount), 0) as total_spent
+                    FROM challenge_participants cp
+                    JOIN users u ON cp.user_id = u.id
+                    LEFT JOIN transactions t ON u.id = t.user_id 
+                        AND t.transaction_date BETWEEN ? AND ? 
+                        AND t.type = 'expense'
+                        ${categoryFilter}
+                    WHERE cp.challenge_id = ?
+                    GROUP BY u.id, u.full_name
+                    ORDER BY total_spent ASC
+                    LIMIT 1
+                `, [challenge.start_date, challenge.end_date, challenge.id]);
+
+                if (leaderboard.length > 0) {
+                    const winner = leaderboard[0];
+                    console.log(`🏆 Winner for ${challenge.name} is ${winner.full_name}`);
+
+                    // Get all participants to notify them
+                    const [participants] = await connection.execute(
+                        'SELECT user_id FROM challenge_participants WHERE challenge_id = ?',
+                        [challenge.id]
+                    );
+
+                    if (participants.length > 0) {
+                        const notifValues = participants.map(p => {
+                            const isWinner = p.user_id === winner.id;
+                            const title = isWinner ? '🏆 You Won!' : '🏁 Challenge Ended';
+                            const message = isWinner
+                                ? `Congratulations! You won the "${challenge.name}" challenge with the lowest spend of ₹${winner.total_spent}.`
+                                : `The "${challenge.name}" challenge has ended. The winner is ${winner.full_name} (₹${winner.total_spent}).`;
+
+                            return [p.user_id, 'challenge_update', title, message, null];
+                        });
+
+                        await connection.query(
+                            'INSERT INTO notifications (user_id, type, title, message, split_request_id) VALUES ?',
+                            [notifValues]
+                        );
+                    }
+                }
+            }
+        }
+
+    } catch (error) {
+        console.error('❌ Error in challenge scheduler:', error);
+    } finally {
+        if (connection) connection.release();
+    }
+}, {
+    timezone: "Asia/Kolkata"
+});
 
 module.exports = app;

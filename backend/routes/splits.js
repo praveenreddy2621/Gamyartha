@@ -138,9 +138,10 @@ router.post('/request', auth, upload.single('bill_image'), async (req, res) => {
                 shouldSendEmail = true;
             }
 
-            // Skip if participant is the requester
-            if (userId === req.user.id) {
-                continue;
+            // Don't send email to requester (they created it), but still add them as participant
+            const isRequester = (userId === req.user.id);
+            if (isRequester) {
+                shouldSendEmail = false;
             }
 
             // Send invitation email to participants who have email alerts enabled
@@ -149,22 +150,32 @@ router.post('/request', auth, upload.single('bill_image'), async (req, res) => {
                     await sendEmail('invite', {
                         to_email: participant.email,
                         requester_name: req.user.fullName, // Renamed from Gamyartha to Gamyartha
+                        amount: participantAmount.toFixed(2), // Format amount
                         description: description,
-                        amount_owed: participantAmount
+                        link: process.env.FRONTEND_URL || 'http://localhost:3000'
                     });
+                    console.log(`✅ Invitation email sent to ${participant.email}`);
                 } catch (emailError) {
-                    // Log the error but don't fail the entire transaction
-                    console.error(`Failed to send invite email to ${participant.email}:`, emailError);
+                    console.error(`Failed to send email to ${participant.email}:`, emailError);
                 }
             }
 
-            // Add participant with resolved user ID
+            // Add participant to split (including requester if they're in the list)
             await connection.query(
                 `INSERT INTO split_participants
                 (split_request_id, user_id, amount_owed)
                 VALUES (?, ?, ?)`,
                 [split_request_id, userId, participantAmount]
             );
+
+            // Create notification for participant (if not the requester)
+            if (!isRequester) {
+                await connection.query(
+                    `INSERT INTO notifications (user_id, type, title, message, split_request_id) 
+                     VALUES (?, 'split_created', 'New Split Request', ?, ?)`,
+                    [userId, `${req.user.fullName} added you to a split for ₹${participantAmount.toFixed(2)}: "${description}"`, split_request_id]
+                );
+            }
 
             // Update the participant object for response
             participant.amount = participantAmount;
@@ -191,7 +202,7 @@ router.post('/request', auth, upload.single('bill_image'), async (req, res) => {
     } catch (error) {
         await connection.rollback();
         console.error('Error creating split request:', error);
-        
+
         if (error.message && error.message.includes('User not found with email')) {
             res.status(400).json({ message: error.message });
         } else if (error.code === 'ER_NO_REFERENCED_ROW') {
@@ -339,12 +350,27 @@ router.post('/payment', auth, upload.single('payment_proof'), async (req, res) =
         );
 
         // Check if all participants have paid and update split request status
-        const [{ split_request_id }] = await connection.query(
-            'SELECT split_request_id FROM split_participants WHERE id = ?',
+        // AND get requester_id for notification
+        const [splitInfo] = await connection.query(
+            `SELECT sp.split_request_id, sr.requester_id, sr.description, u.full_name as payer_name
+             FROM split_participants sp
+             JOIN split_requests sr ON sp.split_request_id = sr.id
+             JOIN users u ON sp.user_id = u.id
+             WHERE sp.id = ?`,
             [split_participant_id]
         );
 
-        const [{ total, paid }] = await connection.query(
+        const { split_request_id, requester_id, description: splitDesc, payer_name } = splitInfo[0];
+
+        // Notify requester about payment
+        await connection.query(
+            `INSERT INTO notifications (user_id, type, title, message) 
+             VALUES (?, 'payment_received', 'Payment Received', ?)`,
+            [requester_id, `${payer_name} paid ₹${amount} for ${splitDesc}`]
+        );
+
+
+        const [statusRows] = await connection.query(
             `SELECT 
                 COUNT(*) as total,
                 SUM(CASE WHEN status = 'paid' THEN 1 ELSE 0 END) as paid
@@ -352,17 +378,30 @@ router.post('/payment', auth, upload.single('payment_proof'), async (req, res) =
              WHERE split_request_id = ?`,
             [split_request_id]
         );
+        const total = Number(statusRows[0].total);
+        const paid = Number(statusRows[0].paid);
 
-        if (paid === total) {
+        console.log(`Split ${split_request_id}: ${paid}/${total} participants paid`);
+
+        if (paid === total && total > 0) {
             await connection.query(
                 'UPDATE split_requests SET status = ? WHERE id = ?',
                 ['completed', split_request_id]
+            );
+            console.log(`✅ Split ${split_request_id} marked as COMPLETED`);
+
+            // Notify requester of completion
+            await connection.query(
+                `INSERT INTO notifications (user_id, type, title, message) 
+                 VALUES (?, 'split_completed', 'Split Completed', ?)`,
+                [requester_id, `All participants have paid for ${splitDesc}`]
             );
         } else if (paid > 0) {
             await connection.query(
                 'UPDATE split_requests SET status = ? WHERE id = ?',
                 ['partially_paid', split_request_id]
             );
+            console.log(`✅ Split ${split_request_id} marked as PARTIALLY_PAID`);
         }
 
         await connection.commit();

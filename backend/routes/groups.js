@@ -12,34 +12,43 @@ const { sendEmail } = require('../utils/mailer');
 
 // Create a new group
 router.post('/create', auth, async (req, res) => {
+    console.log('Received create group request:', req.body);
     const connection = await req.pool.getConnection();
     try {
-        const { group_name, member_emails } = req.body;
-        if (!group_name || !member_emails || !Array.isArray(member_emails)) {
+        const { group_name, member_emails: raw_member_emails } = req.body;
+        if (!group_name || !raw_member_emails || !Array.isArray(raw_member_emails)) {
             return res.status(400).json({ message: 'Invalid request data' });
         }
 
+        // Normalize emails to lowercase and trim
+        const member_emails = raw_member_emails.map(e => e.trim().toLowerCase());
+
+        console.log('Starting transaction for group creation...');
         // Start transaction
         await connection.beginTransaction();
 
         // Create group
-        await connection.query(
+        console.log(`Creating group '${group_name}' for user ${req.user.id}`);
+        const [groupResult] = await connection.query(
             'INSERT INTO expense_groups (group_name, created_by_user_id) VALUES (?, ?)',
             [group_name, req.user.id]
         );
-        const [groupResult] = await connection.query('SELECT LAST_INSERT_ID() as id');
-        const actualGroupId = groupResult[0].id;
+        const actualGroupId = groupResult.insertId; // Use insertId property
+        console.log('Group created with ID:', actualGroupId);
 
         // Get user IDs for member emails
+        console.log('Checking existing users for emails:', member_emails);
         const [existingUsers] = await connection.query(
             'SELECT id, email FROM users WHERE email IN (?)',
             [member_emails]
         );
-        const existingUserMap = new Map(existingUsers.map(u => [u.email, u.id]));
+        const existingUserMap = new Map(existingUsers.map(u => [u.email.toLowerCase(), u.id]));
         const memberUserIds = [];
 
+        console.log('Processing members...');
         for (const email of member_emails) {
             if (!existingUserMap.has(email)) {
+                console.log(`Creating new user for email: ${email}`);
                 // Create placeholder account for new user
                 const saltRounds = 10;
                 const randomPassword = require('crypto').randomBytes(32).toString('hex');
@@ -59,6 +68,7 @@ router.post('/create', auth, async (req, res) => {
 
         // Add members including creator
         const allMembers = [...new Set([...memberUserIds, req.user.id])];
+        console.log('Adding members to group:', allMembers);
         for (const user_id of allMembers) {
             await connection.query(
                 'INSERT INTO group_members (group_id, user_id) VALUES (?, ?)',
@@ -72,6 +82,7 @@ router.post('/create', auth, async (req, res) => {
             );
         }
 
+        console.log('Committing transaction...');
         await connection.commit();
 
         // Send invitation emails to all members except the creator
@@ -95,7 +106,7 @@ router.post('/create', auth, async (req, res) => {
                         const user = userResult[0];
                         if (user) {
                             await sendEmail('groupInvite', {
-                                to_email: user.email, // Renamed from Gamyartha to Gamyartha
+                                to_email: user.email,
                                 user_name: user.full_name || user.email.split('@')[0],
                                 group_name: group_name,
                                 creator_name: creatorName
@@ -124,8 +135,8 @@ router.post('/create', auth, async (req, res) => {
         });
     } catch (error) {
         await connection.rollback();
-        console.error('Error creating group:', error);
-        res.status(500).json({ message: 'Failed to create group' });
+        console.error('Error creating group (STACK TRACE):', error);
+        res.status(500).json({ message: 'Failed to create group: ' + error.message });
     } finally {
         connection.release();
     }
@@ -160,7 +171,7 @@ router.post('/split', auth, async (req, res) => {
     try {
         // NOTE: The request body must include: group_id, amount, description
         const { group_id, amount, description, split_method = 'equal' } = req.body;
-        
+
         // Validate request
         if (!group_id || !amount || !description) {
             return res.status(400).json({ message: 'Missing required fields: group_id, amount, and description are required' });
@@ -177,7 +188,7 @@ router.post('/split', auth, async (req, res) => {
         // FIX: Ensuring req.user.id is cast to an integer to match the database schema (INT)
         // This resolves the 'Column paid_by_user_id cannot be null' error caused by parameter ambiguity.
         const paidByUserIdInt = parseInt(req.user.id);
-        
+
         await connection.query(
             'INSERT INTO group_expenses (group_id, split_request_id, paid_by_user_id, amount, description, split_method) VALUES (?, ?, ?, ?, ?, ?)',
             [group_id, null, paidByUserIdInt, amount, description, split_method]
@@ -306,6 +317,103 @@ router.post('/settle', auth, async (req, res) => {
         await connection.rollback();
         console.error('Error settling up:', error);
         res.status(500).json({ message: 'Failed to record settlement.' });
+    } finally {
+        connection.release();
+    }
+});
+
+// Get transactions for a group (formatted for dashboard)
+router.get('/:group_id/transactions', auth, async (req, res) => {
+    try {
+        const connection = await req.pool.getConnection();
+
+        // Verify member
+        const [isMember] = await connection.query(
+            'SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ?',
+            [req.params.group_id, req.user.id]
+        );
+
+        if (!isMember.length) {
+            connection.release();
+            return res.status(403).json({ message: 'Not authorized' });
+        }
+
+        // Fetch group expenses
+        const [expenses] = await connection.query(`
+            SELECT ge.id, ge.amount, ge.description, 'expense' as type, ge.created_at as transaction_date, 
+                   ge.paid_by_user_id, u.full_name as paid_by_name,
+                   'Group Expense' as category, 
+                   FALSE as is_business, 'INR' as currency
+            FROM group_expenses ge
+            JOIN users u ON ge.paid_by_user_id = u.id
+            WHERE ge.group_id = ?
+            ORDER BY ge.created_at DESC
+            LIMIT 50
+        `, [req.params.group_id]);
+
+        connection.release();
+
+        // Format for frontend
+        const transactions = expenses.map(e => ({
+            ...e,
+            description: `${e.description} (Paid by ${e.paid_by_user_id === req.user.id ? 'You' : e.paid_by_name})`
+        }));
+
+        res.json({ transactions });
+    } catch (error) {
+        console.error('Error fetching group transactions:', error);
+        res.status(500).json({ message: 'Failed to fetch group transactions' });
+    }
+});
+
+// Delete a group expense
+router.delete('/:group_id/expenses/:expense_id', auth, async (req, res) => {
+    const connection = await req.pool.getConnection();
+    try {
+        await connection.beginTransaction();
+
+        const { group_id, expense_id } = req.params;
+
+        // Verify user is a member of the group
+        const [isMember] = await connection.query(
+            'SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ?',
+            [group_id, req.user.id]
+        );
+
+        if (!isMember.length) {
+            await connection.rollback();
+            connection.release();
+            return res.status(403).json({ message: 'Not authorized to delete this expense' });
+        }
+
+        // Get expense details before deleting (to recalculate balances)
+        const [expense] = await connection.query(
+            'SELECT * FROM group_expenses WHERE id = ? AND group_id = ?',
+            [expense_id, group_id]
+        );
+
+        if (!expense.length) {
+            await connection.rollback();
+            connection.release();
+            return res.status(404).json({ message: 'Expense not found' });
+        }
+
+        // Delete the expense
+        await connection.query(
+            'DELETE FROM group_expenses WHERE id = ? AND group_id = ?',
+            [expense_id, group_id]
+        );
+
+        // Note: Group expenses don't have a separate splits table in this schema
+        // The split_method is stored directly in the group_expenses table
+
+        await connection.commit();
+        res.json({ message: 'Expense deleted successfully' });
+
+    } catch (error) {
+        await connection.rollback();
+        console.error('Error deleting group expense:', error);
+        res.status(500).json({ message: 'Failed to delete expense' });
     } finally {
         connection.release();
     }

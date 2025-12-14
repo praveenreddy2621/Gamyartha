@@ -1,14 +1,28 @@
 // Split Expenses Feature UI Components
+// "Like GPay" - Enhanced User Picker & Flow
 
 let API_BASE_URL;
 let appState;
 let setAlert;
+let allUsers = []; // Cache for users
+let selectedUsers = []; // Currently selected participants
 
 export function initSplits(config) {
     API_BASE_URL = config.apiBaseUrl;
     appState = config.appState;
     setAlert = config.setAlert;
 }
+
+// Helper to handle API errors
+const handleApiError = (response) => {
+    if (response.status === 401) {
+        setAlert('Session expired. Please log in again.', 'error');
+        localStorage.removeItem('authToken');
+        setTimeout(() => window.location.reload(), 1500);
+        throw new Error('Session expired');
+    }
+    return response;
+};
 
 export const renderSplitView = (container) => {
     if (!container) {
@@ -78,10 +92,16 @@ export const renderSplitView = (container) => {
                         </div>
 
                         <div>
-                            <label class="block text-sm font-medium text-gray-700">Split With (Enter email addresses, separated by commas)</label>
-                            <input type="text" id="split-users" required
-                                   class="mt-1 focus:ring-emerald-500 focus:border-emerald-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
-                                   placeholder="e.g., user1@example.com, user2@example.com">
+                            <label class="block text-sm font-medium text-gray-700">Split With</label>
+                            <div class="mt-1 relative">
+                                <div id="selected-users-container" class="flex flex-wrap gap-2 mb-2"></div>
+                                <input type="text" id="user-search-input" 
+                                       class="focus:ring-emerald-500 focus:border-emerald-500 block w-full sm:text-sm border-gray-300 rounded-md"
+                                       placeholder="Search by name or email...">
+                                <div id="user-search-dropdown" class="absolute z-10 mt-1 w-full bg-white shadow-lg max-h-60 rounded-md py-1 text-base ring-1 ring-black ring-opacity-5 overflow-auto focus:outline-none sm:text-sm hidden">
+                                    <!-- Options will be populated here -->
+                                </div>
+                            </div>
                         </div>
 
                         <div>
@@ -125,6 +145,7 @@ export const renderSplitView = (container) => {
                     <h3 class="text-lg font-semibold text-gray-800">Split Details</h3>
                     <button data-modal-id="split-details-modal" class="close-modal-btn text-gray-400 hover:text-gray-500">
                         <i class="fas fa-times"></i>
+                        <span class="text-2xl">×</span>
                     </button>
                 </div>
                 <div class="modal-body" id="split-details-content"></div>
@@ -138,10 +159,20 @@ export const renderSplitView = (container) => {
 };
 
 function attachSplitViewListeners() {
+    // Existing listeners
     document.getElementById('show-new-split-modal-btn').addEventListener('click', showNewSplitModal);
 
     document.querySelectorAll('.close-modal-btn').forEach(btn => {
         btn.addEventListener('click', () => closeModal(btn.dataset.modalId));
+    });
+
+    // Close modal when clicking outside
+    document.querySelectorAll('.modal').forEach(modal => {
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                modal.style.display = 'none';
+            }
+        });
     });
 
     document.querySelectorAll('.split-tab-btn').forEach(btn => {
@@ -151,16 +182,166 @@ function attachSplitViewListeners() {
     document.getElementById('split-form')?.addEventListener('submit', handleSplitFormSubmit);
 
     document.querySelectorAll('[data-split-id]').forEach(card => {
-        // Ensure listeners are only added once to avoid duplicates
         if (!card.dataset.listenerAdded) {
             card.addEventListener('click', () => showSplitDetails(card.dataset.splitId));
             card.dataset.listenerAdded = 'true';
         }
     });
+
+    // New Picker Listeners
+    const searchInput = document.getElementById('user-search-input');
+    if (searchInput) {
+        searchInput.addEventListener('input', (e) => handleUserSearch(e.target.value));
+        searchInput.addEventListener('focus', () => handleUserSearch(searchInput.value));
+        // Close dropdown when clicking outside
+        document.addEventListener('click', (e) => {
+            const dropdown = document.getElementById('user-search-dropdown');
+            if (dropdown && !e.target.closest('#user-search-input') && !e.target.closest('#user-search-dropdown')) {
+                dropdown.classList.add('hidden');
+            }
+        });
+    }
+}
+
+// User Picker Logic
+async function fetchAllUsers() {
+    try {
+        const response = await fetch(`${API_BASE_URL}/splits/users`, {
+            headers: { 'Authorization': `Bearer ${appState.token}` }
+        });
+        if (response.ok) {
+            const data = await response.json();
+            allUsers = data.users;
+        }
+    } catch (error) {
+        console.error('Failed to fetch users', error);
+    }
+}
+
+function handleUserSearch(query) {
+    const dropdown = document.getElementById('user-search-dropdown');
+    const filtered = allUsers.filter(u =>
+        (u.full_name.toLowerCase().includes(query.toLowerCase()) || u.email.toLowerCase().includes(query.toLowerCase())) &&
+        !selectedUsers.find(s => s.id === u.id) // Exclude already selected
+    );
+
+    // Check if query looks like an email
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const isEmail = emailRegex.test(query);
+    const emailAlreadySelected = selectedUsers.find(s => s.email === query.toLowerCase());
+    const emailInResults = filtered.find(u => u.email.toLowerCase() === query.toLowerCase());
+
+    let dropdownHTML = '';
+
+    // Show existing users
+    if (filtered.length > 0) {
+        dropdownHTML += filtered.map(u => `
+            <div class="cursor-pointer select-none relative py-2 pl-3 pr-9 hover:bg-emerald-50 text-gray-900"
+                 onclick="selectUser('${u.id}')">
+                <div class="flex items-center">
+                    <span class="flex-shrink-0 h-6 w-6 rounded-full bg-emerald-200 flex items-center justify-center text-xs font-medium text-emerald-800">
+                        ${u.full_name.charAt(0).toUpperCase()}
+                    </span>
+                    <span class="ml-3 block truncate font-medium">
+                        ${u.full_name}
+                    </span>
+                    <span class="ml-2 text-gray-400 text-xs truncate">
+                        ${u.email}
+                    </span>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    // If it's a valid email and not already in results/selected, show "Invite" option
+    if (isEmail && !emailInResults && !emailAlreadySelected) {
+        dropdownHTML += `
+            <div class="cursor-pointer select-none relative py-2 pl-3 pr-9 hover:bg-blue-50 text-gray-900 border-t border-gray-200"
+                 onclick="selectUserByEmail('${query}')">
+                <div class="flex items-center">
+                    <span class="flex-shrink-0 h-6 w-6 rounded-full bg-blue-200 flex items-center justify-center text-xs font-medium text-blue-800">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path>
+                        </svg>
+                    </span>
+                    <span class="ml-3 block truncate font-medium text-blue-600">
+                        Invite ${query}
+                    </span>
+                    <span class="ml-2 text-blue-400 text-xs">
+                        (New user)
+                    </span>
+                </div>
+            </div>
+        `;
+    }
+
+    // Show message if no results and not a valid email
+    if (dropdownHTML === '') {
+        if (query.length > 0) {
+            dropdownHTML = `<div class="p-2 text-gray-500 text-sm">No users found. Enter a valid email to invite.</div>`;
+        } else {
+            dropdownHTML = `<div class="p-2 text-gray-500 text-sm">Start typing to search users or enter an email...</div>`;
+        }
+    }
+
+    dropdown.innerHTML = dropdownHTML;
+    dropdown.classList.remove('hidden');
+}
+
+
+// Global scope specific functions needs to be attached or made global if pure module isn't strictly enforced by simple script tag usage
+// But here we are in a module system (assumed), so we export or attach to window if needed. 
+// Ideally, `onclick="selectUser..."` in HTML string needs `selectUser` to be global.
+window.selectUser = (userId) => {
+    const user = allUsers.find(u => u.id == userId);
+    if (user) {
+        selectedUsers.push(user);
+        renderSelectedUsers();
+        document.getElementById('user-search-input').value = '';
+        document.getElementById('user-search-dropdown').classList.add('hidden');
+    }
+};
+
+// New function to select user by email (for inviting new users)
+window.selectUserByEmail = (email) => {
+    // Create a temporary user object with the email
+    const tempUser = {
+        id: `email_${email}`, // Temporary ID
+        email: email,
+        full_name: email.split('@')[0], // Use email prefix as name
+        isNewUser: true // Flag to indicate this is a new user
+    };
+    selectedUsers.push(tempUser);
+    renderSelectedUsers();
+    document.getElementById('user-search-input').value = '';
+    document.getElementById('user-search-dropdown').classList.add('hidden');
+};
+
+window.removeUser = (userId) => {
+    selectedUsers = selectedUsers.filter(u => u.id != userId);
+    renderSelectedUsers();
+};
+
+function renderSelectedUsers() {
+    const container = document.getElementById('selected-users-container');
+    container.innerHTML = selectedUsers.map(u => `
+        <span class="inline-flex rounded-full items-center py-0.5 pl-2.5 pr-1 text-sm font-medium bg-emerald-100 text-emerald-700">
+            ${u.full_name}
+            <button type="button" onclick="removeUser('${u.id}')" class="flex-shrink-0 ml-0.5 h-4 w-4 rounded-full inline-flex items-center justify-center text-emerald-400 hover:bg-emerald-200 hover:text-emerald-500 focus:outline-none focus:bg-emerald-500 focus:text-white">
+                <span class="sr-only">Remove</span>
+                <svg class="h-2 w-2" stroke="currentColor" fill="none" viewBox="0 0 8 8">
+                    <path stroke-linecap="round" stroke-width="1.5" d="M1 1l6 6m0-6L1 7" />
+                </svg>
+            </button>
+        </span>
+    `).join('');
 }
 
 function showNewSplitModal() {
     document.getElementById('new-split-modal').style.display = 'flex';
+    selectedUsers = [];
+    renderSelectedUsers();
+    if (allUsers.length === 0) fetchAllUsers();
 }
 
 function closeModal(modalId) {
@@ -203,13 +384,15 @@ async function showSplitDetails(splitId) {
     modal.style.display = 'flex';
 
     try {
+
         const response = await fetch(`${API_BASE_URL}/splits/request/${splitId}`, {
             headers: { 'Authorization': `Bearer ${appState.token}` }
-        });
+        }).then(handleApiError);
+
         if (!response.ok) throw new Error('Failed to fetch split details');
 
         const split = await response.json();
-        
+
         const participantsHtml = split.participants.map(p => {
             const isCurrentUser = p.user_id === appState.userId;
             const isPaid = p.status === 'paid';
@@ -218,8 +401,8 @@ async function showSplitDetails(splitId) {
                 <div class="flex justify-between items-center py-3 border-b last:border-0">
                     <div class="flex items-center space-x-3">
                         ${getUserAvatar(p.user_id) ?
-                            `<img src="${getUserAvatar(p.user_id)}" class="w-8 h-8 rounded-full" alt="${p.full_name}">` :
-                            `<span class="w-8 h-8 rounded-full bg-gray-300 flex items-center justify-center text-sm text-gray-600">${p.full_name.charAt(0).toUpperCase()}</span>`}
+                    `<img src="${getUserAvatar(p.user_id)}" class="w-8 h-8 rounded-full" alt="${p.full_name}">` :
+                    `<span class="w-8 h-8 rounded-full bg-gray-300 flex items-center justify-center text-sm text-gray-600">${p.full_name.charAt(0).toUpperCase()}</span>`}
                         <div>
                             <p class="font-medium text-gray-800">${p.full_name} ${isCurrentUser ? '(You)' : ''}</p>
                             <p class="text-xs text-gray-500">${p.email}</p>
@@ -265,16 +448,20 @@ window.handlePaySplit = async (participantId, splitId, amount) => {
     if (!confirm(`Confirm payment of ₹${amount}?`)) return;
 
     // This is a simplified call. In a real app, you might have a form for payment method, etc.
+
+
     const response = await fetch(`${API_BASE_URL}/splits/payment`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${appState.token}` },
         body: JSON.stringify({ split_participant_id: participantId, amount: amount, payment_method: 'cash' })
-    });
+    }).then(handleApiError);
 
     if (response.ok) {
         setAlert('Payment recorded successfully!', 'success');
-        closeModal('split-details-modal');
-        loadSplitRequests(); // Refresh the main list
+        // Refresh the main list first
+        await loadSplitRequests();
+        // Then refresh the detail view to show updated status
+        await showSplitDetails(splitId);
     } else {
         setAlert('Failed to record payment.', 'error');
     }
@@ -282,9 +469,11 @@ window.handlePaySplit = async (participantId, splitId, amount) => {
 
 const loadSplitRequests = async () => {
     try {
+
+
         const response = await fetch(`${API_BASE_URL}/splits/request/list`, {
             headers: { 'Authorization': `Bearer ${appState.token}` }
-        });
+        }).then(handleApiError);
 
         if (!response.ok) throw new Error('Failed to fetch split requests');
 
@@ -303,12 +492,12 @@ const renderSplitRequests = (requests) => {
     const pendingRequests = requests.filter(r => r.status !== 'completed');
     const completedRequests = requests.filter(r => r.status === 'completed');
 
-    pendingContainer.innerHTML = pendingRequests.length ? pendingRequests.map(renderSplitRequestCard).join('') 
+    pendingContainer.innerHTML = pendingRequests.length ? pendingRequests.map(renderSplitRequestCard).join('')
         : '<p class="text-center text-gray-500 py-8">No pending split requests</p>';
 
     historyContainer.innerHTML = completedRequests.length ? completedRequests.map(renderSplitRequestCard).join('')
         : '<p class="text-center text-gray-500 py-8">No completed splits</p>';
-    
+
     // Re-attach listeners to the newly rendered cards
     document.querySelectorAll('[data-split-id]').forEach(card => {
         if (!card.dataset.listenerAdded) {
@@ -341,15 +530,15 @@ const renderSplitRequestCard = (request) => {
             </div>
             <div class="mt-4 flex justify-between items-center">
                 <div class="text-sm text-gray-600">
-                    ${isRequester 
-                        ? 'You requested' 
-                        : `<div class="flex items-center space-x-2">
+                    ${isRequester
+            ? 'You requested'
+            : `<div class="flex items-center space-x-2">
                                ${getUserAvatar(request.requester_id) ?
-                                   `<img src="${getUserAvatar(request.requester_id)}" class="w-6 h-6 rounded-full" alt="${request.requester_name}">` :
-                                   `<span class="w-6 h-6 rounded-full bg-gray-300 flex items-center justify-center text-xs text-gray-600">${request.requester_name.charAt(0).toUpperCase()}</span>`}
+                `<img src="${getUserAvatar(request.requester_id)}" class="w-6 h-6 rounded-full" alt="${request.requester_name}">` :
+                `<span class="w-6 h-6 rounded-full bg-gray-300 flex items-center justify-center text-xs text-gray-600">${request.requester_name.charAt(0).toUpperCase()}</span>`}
                                <span>${request.requester_name} requested</span>
                            </div>`
-                    }
+        }
                 </div>
                 <div class="text-right">
                     <p class="font-semibold text-gray-800">₹${request.amount}</p>
@@ -364,20 +553,16 @@ const renderSplitRequestCard = (request) => {
 
 async function handleSplitFormSubmit(e) {
     e.preventDefault();
-    
+
     const formData = new FormData();
     formData.append('amount', document.getElementById('split-amount').value);
     formData.append('description', document.getElementById('split-description').value);
     formData.append('split_method', document.getElementById('split-method').value);
-    
-    const userEmails = document.getElementById('split-users').value
-        .split(',')
-        .map(email => email.trim())
-        .filter(email => email.length > 0)
-        .map(email => ({ email })); // Backend expects emails
+
+    const userEmails = selectedUsers.map(u => ({ email: u.email }));
 
     if (userEmails.length === 0) {
-        setAlert('Please enter at least one email address', 'error');
+        setAlert('Please select at least one person to split with', 'error');
         return;
     }
 
@@ -389,11 +574,13 @@ async function handleSplitFormSubmit(e) {
     }
 
     try {
+
+
         const response = await fetch(`${API_BASE_URL}/splits/request`, {
             method: 'POST',
             headers: { 'Authorization': `Bearer ${appState.token}` },
             body: formData
-        });
+        }).then(handleApiError);
 
         if (!response.ok) {
             const errorData = await response.json();

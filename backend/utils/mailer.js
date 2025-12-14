@@ -13,6 +13,9 @@ const emailConfig = {
 // Create transporter
 const transporter = nodemailer.createTransport(emailConfig);
 
+// Base URL for links (Production URL or Localhost)
+const BASE_URL = process.env.APP_URL || process.env.FRONTEND_URL || `http://localhost:${process.env.PORT || 3001}`;
+
 // Email templates
 const emailTemplates = {
     welcome: (data) => ({
@@ -47,7 +50,7 @@ const emailTemplates = {
                     <p>Get started by logging into your account and recording your first transaction!</p>
 
                     <div style="text-align: center; margin: 30px 0;">
-                        <a href="http://localhost:3001/" style="background-color: #3b82f6; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold;">Start Using Gamyartha</a>
+                        <a href="${BASE_URL}/" style="background-color: #3b82f6; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold;">Start Using Gamyartha</a>
                     </div>
 
                     <p>Happy budgeting! 💰</p>
@@ -148,7 +151,7 @@ const emailTemplates = {
                     <p>You can view all your transactions in your Gamyartha dashboard.</p>
 
                     <div style="text-align: center; margin: 30px 0;">
-                        <a href="http://localhost:3001/" style="background-color: #059669; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold;">View Dashboard</a> 
+                        <a href="${BASE_URL}/" style="background-color: #059669; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold;">View Dashboard</a> 
                     </div>
 
                     <p>Best regards,<br>The Gamyartha Team</p>
@@ -196,7 +199,7 @@ const emailTemplates = {
                     <p>Please make sure to complete this payment before the due date to avoid any penalties or late fees.</p>
 
                     <div style="text-align: center; margin: 30px 0;">
-                        <a href="http://localhost:3001/" style="background-color: #f59e0b; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold;">View in Gamyartha</a>
+                        <a href="${BASE_URL}/" style="background-color: #f59e0b; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold;">View in Gamyartha</a>
                     </div>
 
                     <p>Best regards,<br>The Gamyartha Team</p>
@@ -244,7 +247,7 @@ const emailTemplates = {
                     <p>Keep up the excellent work! Setting and achieving financial goals is a great habit that will help you build wealth over time.</p>
 
                     <div style="text-align: center; margin: 30px 0;">
-                        <a href="http://localhost:3001/" style="background-color: #059669; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold;">Set New Goal</a>
+                        <a href="${BASE_URL}/" style="background-color: #059669; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold;">Set New Goal</a>
                     </div>
 
                     <p>Best regards,<br>The Gamyartha Team</p>
@@ -292,7 +295,7 @@ const emailTemplates = {
                     <p>You can view and pay your share by logging into Gamyartha.</p>
 
                     <div style="text-align: center; margin: 30px 0;"> 
-                        <a href="http://localhost:3001/" style="background-color: #3b82f6; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold;">View Split Request</a>
+                        <a href="${BASE_URL}/" style="background-color: #3b82f6; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold;">View Split Request</a>
                     </div>
 
                     <p>If you don't have a Gamyartha account yet, you'll need to sign up first.</p>
@@ -342,7 +345,7 @@ const emailTemplates = {
                     <p>You can now split expenses, track balances, and manage shared costs with the group members.</p>
 
                     <div style="text-align: center; margin: 30px 0;">
-                        <a href="http://localhost:3001/" style="background-color: #059669; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold;">View Group</a>
+                        <a href="${BASE_URL}/" style="background-color: #059669; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold;">View Group</a>
                     </div>
 
                     <p>If you don't have a Gamyartha account yet, you'll need to sign up first to access the group.</p>
@@ -395,7 +398,7 @@ const emailTemplates = {
                     <p>Keep up the good work! Tracking your income helps you understand your financial health better.</p>
 
                     <div style="text-align: center; margin: 30px 0;">
-                        <a href="http://localhost:3001/" style="background-color: #059669; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold;">View Dashboard</a>
+                        <a href="${BASE_URL}/" style="background-color: #059669; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold;">View Dashboard</a>
                     </div>
 
                     <p>Best regards,<br>The Gamyartha Team</p>
@@ -445,7 +448,7 @@ const emailTemplates = {
                     <p>Consider reviewing your spending in this category or adjusting your budget to better align with your financial goals.</p>
 
                     <div style="text-align: center; margin: 30px 0;">
-                        <a href="http://localhost:3001/" style="background-color: #dc2626; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold;">Review Budget</a>
+                        <a href="${BASE_URL}/" style="background-color: #dc2626; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold;">Review Budget</a>
                     </div>
 
                     <p>Stay on track with your financial goals!</p>
@@ -515,7 +518,7 @@ const emailTemplates = {
                     `}
 
                     <div style="text-align: center; margin: 30px 0;">
-                        <a href="http://localhost:3001/" style="background-color: #3b82f6; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold;">View Full Dashboard</a>
+                        <a href="${BASE_URL}/" style="background-color: #3b82f6; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold;">View Full Dashboard</a>
                     </div>
 
                     <p>Stay on track with your financial goals!</p>
@@ -530,6 +533,67 @@ const emailTemplates = {
             </body>
             </html>
         `
+    }),
+
+    subscriptionRenewed: (data) => ({
+        from: emailConfig.auth.user,
+        to: data.to_email,
+        subject: `Subscription Renewed: ${data.description}`,
+        html: `
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="utf-8">
+                <title>Subscription Renewed</title>
+            </head>
+            <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+                <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+                    <h1 style="color: #6366f1; text-align: center;">🔄 Subscription Renewed</h1>
+
+                    <div style="background-color: #eef2ff; border: 1px solid #6366f1; padding: 15px; border-radius: 5px; margin: 20px 0;">
+                        <p style="margin: 0; color: #4338ca;"><strong>✅ Auto-Renewal:</strong> Your subscription has been automatically processed.</p>
+                    </div>
+
+                    <p>Dear ${data.user_name},</p>
+
+                    <p>Your recurring subscription has been renewed and recorded in your Gamyartha account:</p>
+
+                    <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; padding: 20px; border-radius: 5px; margin: 20px 0;">
+                        <h3 style="margin-top: 0; color: #1e293b;">Subscription Details</h3>
+                        <p><strong>Description:</strong> ${data.description}</p>
+                        <p><strong>Amount:</strong> ₹${data.amount}</p>
+                        <p><strong>Frequency:</strong> <span style="text-transform: capitalize;">${data.frequency}</span></p>
+                        <p><strong>Processed On:</strong> ${new Date().toLocaleDateString()}</p>
+                        <p><strong>Next Due Date:</strong> ${new Date(data.next_due_date).toLocaleDateString()}</p>
+                    </div>
+
+                    <p>This transaction has been automatically added to your expense records.</p>
+
+                    <div style="text-align: center; margin: 30px 0;">
+                        <a href="${BASE_URL}/" style="background-color: #6366f1; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold;">View Subscriptions</a>
+                    </div>
+
+                    <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0;">
+                        <p style="margin: 0; font-size: 14px;"><strong>💡 Tip:</strong> You can manage or cancel your subscriptions anytime from your Gamyartha dashboard.</p>
+                    </div>
+
+                    <p>Best regards,<br>The Gamyartha Team</p>
+
+                    <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
+                    <p style="font-size: 12px; color: #666; text-align: center;">
+                        This is an automated notification from Gamyartha.
+                    </p>
+                </div>
+            </body>
+            </html>
+        `
+    }),
+
+    generic: (data) => ({
+        from: emailConfig.auth.user,
+        to: data.to_email,
+        subject: data.subject,
+        html: data.html
     })
 };
 

@@ -36,7 +36,7 @@ const initializeGroupListeners = async () => {
         const response = await fetch(`${API_BASE_URL}/groups`, {
             headers: {
                 // Assuming Content-Type is application/json for GET requests
-                'Content-Type': 'application/json', 
+                'Content-Type': 'application/json',
                 'Authorization': `Bearer ${appState.token}`
             }
         });
@@ -62,7 +62,7 @@ const loadGroupBalances = async (groupId) => {
                 'Authorization': `Bearer ${appState.token}`
             }
         });
-        
+
         if (response.ok) {
             const data = await response.json();
             appState.groupBalances[groupId] = data.balances;
@@ -83,8 +83,11 @@ const renderGroupsView = (container) => {
                 <span class="text-sm text-gray-500">${group.member_count} ${TRANSLATIONS.MEMBER_COUNT}</span>
             </div>
             <div class="mt-2 text-sm ${group.user_balance > 0 ? 'text-green-600' : group.user_balance < 0 ? 'text-red-600' : 'text-gray-600'}">
+            <div class="mt-2 text-sm ${group.user_balance > 0 ? 'text-green-600' : group.user_balance < 0 ? 'text-red-600' : 'text-gray-600'}">
                 ${formatGroupBalance(group.user_balance)}
             </div>
+            ${appState.currentGroupId && String(appState.currentGroupId) === String(group.id) ?
+            '<div class="mt-2 inline-block px-2 py-0.5 bg-teal-100 text-teal-800 text-xs rounded-full font-medium">Active Family Group</div>' : ''}
         </div>
     `).join('');
 
@@ -122,6 +125,23 @@ const renderGroupsView = (container) => {
                                 <i class="fas fa-receipt mr-2"></i>${TRANSLATIONS.SPLIT_BILL}
                             </button>
                         </div>
+                        
+                        <!-- Set Active Group Section -->
+                        <div class="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200 flex justify-between items-center">
+                            <div>
+                                <h4 class="font-semibold text-gray-800">Family Mode Status</h4>
+                                <p class="text-sm text-gray-500">
+                                    ${appState.currentGroupId && String(appState.currentGroupId) === String(selectedGroup.id) ?
+                'This is your currently active group for the Shared Dashboard.' :
+                'Set this group to see its transactions on your Dashboard.'}
+                                </p>
+                            </div>
+                            ${appState.currentGroupId && String(appState.currentGroupId) === String(selectedGroup.id) ?
+                '<span class="px-4 py-2 bg-teal-100 text-teal-700 rounded-md font-medium border border-teal-200">Currently Active</span>' :
+                `<button onclick="setActiveGroup('${selectedGroup.id}')" class="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition shadow-sm">Set as Active</button>`
+            }
+                        </div>
+
                         ${balancesList}
                     </div>
                 ` : `
@@ -138,27 +158,64 @@ const renderGroupBalances = (group) => {
     const balances = appState.groupBalances[group.id] || [];
     if (!balances.length) return '<p class="text-gray-500">Loading balances...</p>';
 
-    const balanceItems = balances
-        .map(balance => `
+    // Separate settled and unsettled members
+    const settledMembers = balances.filter(b => Number(b.net_balance) === 0);
+    const unsettledMembers = balances.filter(b => Number(b.net_balance) !== 0);
+
+    // If all balances are zero, show success message
+    if (unsettledMembers.length === 0 && settledMembers.length > 0) {
+        return `
+            <div class="text-center py-8">
+                <div class="text-5xl mb-3">✅</div>
+                <p class="text-lg font-semibold text-green-600">All settled up!</p>
+                <p class="text-sm text-gray-500 mt-1">Everyone in this group is square.</p>
+            </div>
+        `;
+    }
+
+    // Render unsettled members first, then settled members
+    const allMembers = [...unsettledMembers, ...settledMembers];
+
+    const balanceItems = allMembers
+        .map(balance => {
+            const balanceNum = Number(balance.net_balance);
+            const isSettled = balanceNum === 0;
+
+            return `
             <div class="flex justify-between items-center py-3 border-b border-gray-100 last:border-0">
                 <div>
                     <span class="font-medium">${balance.user_name} ${balance.user_id === appState.userId ? '(You)' : ''}</span>
                 </div>
-                <div class="text-right">
-                    <span class="font-semibold ${balance.net_balance > 0 ? 'text-green-600' : balance.net_balance < 0 ? 'text-red-600' : 'text-gray-600'}">
-                        ${formatGroupBalance(balance.net_balance)}
-                    </span>
-                    ${balance.net_balance < 0 && balance.user_id === appState.userId ? `
-                        <button onclick="showSettleUpModal('${group.id}', ${balance.net_balance})" 
-                                class="ml-2 text-xs bg-blue-600 text-white px-3 py-1 rounded-full hover:bg-blue-700 transition">
-                            Settle Up
-                        </button>
-                    ` : ''}
+                <div class="text-right flex items-center gap-2">
+                    ${isSettled ? `
+                        <span class="text-sm font-medium text-green-600 flex items-center gap-1">
+                            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+                            </svg>
+                            Settled
+                        </span>
+                    ` : `
+                        <span class="font-semibold ${balanceNum > 0 ? 'text-green-600' : 'text-red-600'}">
+                            ${formatGroupBalance(balanceNum)}
+                        </span>
+                        ${balanceNum < 0 && balance.user_id === appState.userId ? `
+                            <button onclick="showSettleUpModal('${group.id}', ${balanceNum})" 
+                                    class="text-xs bg-blue-600 text-white px-3 py-1 rounded-full hover:bg-blue-700 transition">
+                                Settle Up
+                            </button>
+                        ` : ''}
+                    `}
                 </div>
             </div>
-        `).join('');
+        `;
+        }).join('');
 
-    return balanceItems || `<p class="text-gray-500 text-center py-4">No other members in this group</p>`;
+    return `
+        <div class="mb-4">
+            <h4 class="text-sm font-semibold text-gray-700 mb-3">Group Members</h4>
+            ${balanceItems}
+        </div>
+    `;
 };
 
 const showCreateGroupModal = () => {
@@ -257,12 +314,19 @@ const createGroup = async () => {
 
         if (response.ok) {
             const data = await response.json();
-            alert(TRANSLATIONS.GROUP_CREATED);
             closeModal();
             // Reload groups data
             await initializeGroupListeners();
-            // Re-render the view inside the correct container
-            renderGroupsView(document.getElementById('profile-content'));
+            // Select the new group
+            await selectGroup(data.group_id);
+
+            // Ask user if they want to switch immediately
+            const confirmSwitch = confirm(`${TRANSLATIONS.GROUP_CREATED}\n\nDo you want to open ${data.group_name} Dashboard now?`);
+            if (confirmSwitch && window.switchToGroupDashboard) {
+                window.switchToGroupDashboard(data.group_id);
+            } else {
+                renderGroupsView(document.getElementById('profile-content'));
+            }
         } else {
             const errorText = await response.text();
             // setAlert is not available in this module, so using alert()
@@ -510,6 +574,30 @@ window.showSplitBillModal = showSplitBillModal;
 window.selectGroup = selectGroup;
 window.showSettleUpModal = showSettleUpModal;
 window.closeModal = closeModal;
+window.setActiveGroup = async (groupId) => {
+    try {
+        const response = await fetch(`${API_BASE_URL}/user/settings`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${appState.token}`
+            },
+            body: JSON.stringify({ key: 'current_group', value: String(groupId) })
+        });
+
+        if (response.ok) {
+            appState.currentGroupId = groupId;
+            // Update UI
+            alert('Active group updated! Dashboard will now show this group when in Shared Mode.');
+            renderGroupsView(document.getElementById('profile-content'));
+        } else {
+            alert('Failed to update active group.');
+        }
+    } catch (error) {
+        console.error('Error setting active group:', error);
+        alert('An error occurred.');
+    }
+};
 
 // Export functions for use in app.js
 export { initializeGroupListeners, renderGroupsView };

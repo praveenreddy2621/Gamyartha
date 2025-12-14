@@ -1,150 +1,184 @@
-// Add to your existing app.js or create a new notifications.js file
+// Notification System
+// Get API base URL
+const getApiBaseUrl = () => {
+    return `${window.ENV?.BACKEND_API || 'http://localhost:3001'}/api`;
+};
 
-// Add to appState
-appState.notifications = [];
-appState.unreadNotificationCount = 0;
+let notificationsData = [];
+let unreadCount = 0;
 
-// Notification functions
+// Load notifications from API
 const loadNotifications = async () => {
     try {
-        const response = await fetch(`${API_BASE_URL}/notifications`, {
-            headers: { 'Authorization': `Bearer ${appState.token}` }
+        const token = localStorage.getItem('authToken');
+        if (!token) {
+            console.log('No auth token found, skipping notification load');
+            return;
+        }
+
+        const apiUrl = `${getApiBaseUrl()}/notifications`;
+
+        const response = await fetch(apiUrl, {
+            headers: { 'Authorization': `Bearer ${token}` }
         });
 
-        if (!response.ok) throw new Error('Failed to fetch notifications');
+        if (!response.ok) {
+            console.error('Failed to fetch notifications:', response.status, response.statusText);
+            throw new Error('Failed to fetch notifications');
+        }
 
         const data = await response.json();
-        appState.notifications = data.notifications;
-        appState.unreadNotificationCount = data.notifications.filter(n => !n.read_at).length;
-        updateNotificationBadge();
+        notificationsData = data.notifications || [];
+        unreadCount = notificationsData.filter(n => !n.read_at).length;
+
+        unreadCount = notificationsData.filter(n => !n.read_at).length;
+        updateNotificationUI();
     } catch (error) {
         console.error('Error loading notifications:', error);
     }
 };
 
-const updateNotificationBadge = () => {
+// Update notification UI
+const updateNotificationUI = () => {
     const badge = document.getElementById('notification-badge');
-    if (badge) {
-        badge.textContent = appState.unreadNotificationCount;
-        badge.style.display = appState.unreadNotificationCount > 0 ? 'block' : 'none';
-    }
-};
+    const list = document.getElementById('notifications-list');
 
-const renderNotificationsDropdown = () => {
-    return `
-        <div class="relative">
-            <button id="notification-btn" 
-                    class="relative p-2 text-gray-600 hover:text-gray-800 focus:outline-none">
-                <i class="fas fa-bell text-xl"></i>
-                <span id="notification-badge" 
-                      class="absolute top-0 right-0 inline-flex items-center justify-center px-2 py-1 text-xs font-bold leading-none text-white transform translate-x-1/2 -translate-y-1/2 bg-red-500 rounded-full ${appState.unreadNotificationCount ? '' : 'hidden'}">
-                    ${appState.unreadNotificationCount}
-                </span>
-            </button>
-            
-            <div id="notifications-dropdown" 
-                 class="hidden absolute right-0 mt-2 w-80 bg-white rounded-lg shadow-xl z-50">
-                <div class="p-4 border-b border-gray-200">
-                    <div class="flex justify-between items-center">
-                        <h3 class="text-lg font-semibold text-gray-800">Notifications</h3>
-                        ${appState.unreadNotificationCount ? `
-                            <button onclick="markAllNotificationsRead()"
-                                    class="text-sm text-emerald-600 hover:text-emerald-700">
-                                Mark all as read
-                            </button>
-                        ` : ''}
-                    </div>
+    if (!badge || !list) return;
+
+    // Update badge
+    if (unreadCount > 0) {
+        badge.textContent = unreadCount;
+        badge.classList.remove('hidden');
+    } else {
+        badge.classList.add('hidden');
+    }
+
+    // Update list
+    if (notificationsData.length === 0) {
+        list.innerHTML = '<div class="p-4 text-center text-gray-500 text-sm">No notifications</div>';
+        return;
+    }
+
+    list.innerHTML = notificationsData.map(n => `
+        <div class="p-3 hover:bg-gray-50 cursor-pointer ${n.read_at ? '' : 'bg-blue-50'}" onclick="handleNotificationClick('${n.id}')">
+            <div class="flex items-start">
+                <div class="flex-shrink-0 mr-3">
+                    ${getNotificationIcon(n.type)}
                 </div>
-                
-                <div class="max-h-96 overflow-y-auto">
-                    ${appState.notifications.length ? appState.notifications.map(notification => `
-                        <div class="p-4 border-b border-gray-100 hover:bg-gray-50 ${notification.read_at ? '' : 'bg-emerald-50'}"
-                             onclick="handleNotificationClick('${notification.id}', '${notification.split_request_id}')">
-                            <div class="flex items-start">
-                                <div class="flex-shrink-0">
-                                    ${getNotificationIcon(notification.type)}
-                                </div>
-                                <div class="ml-3">
-                                    <p class="text-sm font-medium text-gray-900">${notification.title}</p>
-                                    <p class="text-sm text-gray-500">${notification.message}</p>
-                                    <p class="text-xs text-gray-400 mt-1">
-                                        ${formatTimeAgo(new Date(notification.created_at))}
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
-                    `).join('') : `
-                        <div class="p-4 text-center text-gray-500">
-                            No notifications
-                        </div>
-                    `}
+                <div class="flex-1 min-w-0">
+                    <p class="text-sm font-medium text-gray-900">${n.title}</p>
+                    <p class="text-xs text-gray-600 mt-1">${n.message}</p>
+                    <p class="text-xs text-gray-400 mt-1">${formatTimeAgo(new Date(n.created_at))}</p>
                 </div>
             </div>
         </div>
-    `;
+    `).join('');
 };
 
+// Get icon for notification type
 const getNotificationIcon = (type) => {
     const icons = {
         split_reminder: '<i class="fas fa-clock text-yellow-500"></i>',
         payment_received: '<i class="fas fa-check-circle text-green-500"></i>',
         split_completed: '<i class="fas fa-check-double text-green-500"></i>',
-        split_created: '<i class="fas fa-plus-circle text-blue-500"></i>'
+        split_created: '<i class="fas fa-plus-circle text-blue-500"></i>',
+        recurring_processed: '<svg class="w-5 h-5 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>',
+        obligation_due: '<svg class="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>'
     };
-    return icons[type] || '<i class="fas fa-bell text-gray-500"></i>';
+    return icons[type] || '<svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path></svg>';
 };
 
-const handleNotificationClick = async (notificationId, splitRequestId) => {
+// Format time ago
+const formatTimeAgo = (date) => {
+    const seconds = Math.floor((new Date() - date) / 1000);
+    if (seconds < 60) return 'Just now';
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    return `${days}d ago`;
+};
+
+// Handle notification click
+window.handleNotificationClick = async (notificationId) => {
     try {
-        // Mark as read
-        await fetch(`${API_BASE_URL}/notifications/${notificationId}/read`, {
+        const token = localStorage.getItem('authToken');
+        await fetch(`${getApiBaseUrl()}/notifications/${notificationId}/read`, {
             method: 'POST',
-            headers: { 'Authorization': `Bearer ${appState.token}` }
+            headers: { 'Authorization': `Bearer ${token}` }
         });
 
-        // Navigate to split details if available
-        if (splitRequestId) {
-            showSplitDetails(splitRequestId);
+        // Reload notifications
+        await loadNotifications();
+    } catch (error) {
+        console.error('Error marking notification as read:', error);
+    }
+};
+
+// Mark all as read
+const markAllAsRead = async () => {
+    try {
+        const token = localStorage.getItem('authToken');
+        await fetch(`${getApiBaseUrl()}/notifications/read-all`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        await loadNotifications();
+    } catch (error) {
+        console.error('Error marking all as read:', error);
+    }
+};
+
+// Initialize notification system
+window.initNotifications = () => {
+
+    const container = document.getElementById('notification-container');
+    const btn = document.getElementById('notification-btn');
+    const dropdown = document.getElementById('notifications-dropdown');
+    const markAllBtn = document.getElementById('mark-all-read-btn');
+
+    if (!container || !btn || !dropdown) {
+        console.error('❌ Notification elements not found!');
+        return;
+    }
+
+    // Show notification container
+    container.classList.remove('hidden');
+
+    // ONLY attach listeners if not already attached
+    if (!window.notificationsListenersAttached) {
+        // Toggle dropdown
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            dropdown.classList.toggle('hidden');
+        });
+
+        // Mark all as read
+        if (markAllBtn) {
+            markAllBtn.addEventListener('click', markAllAsRead);
         }
 
-        // Refresh notifications
-        loadNotifications();
-    } catch (error) {
-        console.error('Error handling notification:', error);
-    }
-};
-
-const markAllNotificationsRead = async () => {
-    try {
-        await fetch(`${API_BASE_URL}/notifications/read-all`, {
-            method: 'POST',
-            headers: { 'Authorization': `Bearer ${appState.token}` }
+        // Close dropdown when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!dropdown.contains(e.target) && !btn.contains(e.target)) {
+                dropdown.classList.add('hidden');
+            }
         });
-        loadNotifications();
-    } catch (error) {
-        console.error('Error marking notifications as read:', error);
+
+        window.notificationsListenersAttached = true;
+        console.log('🔔 Notification listeners attached');
     }
+
+    // Load notifications immediately
+    loadNotifications();
+
+    // Clear existing interval if any to prevent duplicates
+    if (window.notificationInterval) {
+        clearInterval(window.notificationInterval);
+    }
+
+    // Refresh every 30 seconds
+    window.notificationInterval = setInterval(loadNotifications, 30000);
 };
-
-// Add click handler for notification button
-document.getElementById('notification-btn')?.addEventListener('click', (e) => {
-    e.stopPropagation();
-    const dropdown = document.getElementById('notifications-dropdown');
-    dropdown.classList.toggle('hidden');
-});
-
-// Close dropdown when clicking outside
-document.addEventListener('click', (e) => {
-    if (!e.target.closest('#notifications-dropdown') && !e.target.closest('#notification-btn')) {
-        document.getElementById('notifications-dropdown')?.classList.add('hidden');
-    }
-});
-
-// Initialize notifications on login
-document.addEventListener('DOMContentLoaded', () => {
-    if (appState.token) {
-        loadNotifications();
-        // Refresh notifications every 5 minutes
-        setInterval(loadNotifications, 5 * 60 * 1000);
-    }
-});

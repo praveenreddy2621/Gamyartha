@@ -11,6 +11,9 @@ const transporter = nodemailer.createTransport({
     }
 });
 
+// Base URL for links (Production URL or Localhost)
+const BASE_URL = process.env.APP_URL || process.env.FRONTEND_URL || `http://localhost:${process.env.PORT || 3001}`;
+
 class ReminderService {
     // Schedule automatic reminders for pending splits
     static scheduleReminders() {
@@ -18,7 +21,7 @@ class ReminderService {
         schedule.scheduleJob('0 10 * * *', async () => {
             try {
                 const connection = await pool.getConnection();
-                
+
                 // Get pending split participants that haven't been reminded in 3 days
                 const [pendingParticipants] = await connection.query(`
                     SELECT 
@@ -58,7 +61,7 @@ class ReminderService {
         try {
             // Create email content
             const emailContent = this.createReminderEmail(participant);
-            
+
             // Send email
             await transporter.sendMail({
                 from: '"Gamyartha" <noreply@gamyartha.com>',
@@ -114,7 +117,7 @@ class ReminderService {
 
                 <p>Please settle this payment at your earliest convenience.</p>
 
-                <a href="${process.env.APP_URL}/splits" 
+                <a href="${BASE_URL}/splits" 
                    style="display: inline-block; background-color: #059669; color: white; padding: 10px 20px; 
                           text-decoration: none; border-radius: 5px; margin-top: 15px;">
                     View Split Details

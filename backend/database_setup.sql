@@ -6,17 +6,14 @@
 CREATE DATABASE IF NOT EXISTS gamyartha;
 USE gamyartha;
 
--- Create user (optional - adjust credentials as needed)
--- Note: This requires administrative privileges. You may need to run this separately.
--- CREATE USER IF NOT EXISTS 'Gamyartha_user'@'localhost' IDENTIFIED BY 'your_password_here';
--- GRANT ALL PRIVILEGES ON Gamyartha.* TO 'Gamyartha_user'@'localhost';
--- FLUSH PRIVILEGES;
 
 -- Users table
 CREATE TABLE IF NOT EXISTS users (
     id INT AUTO_INCREMENT PRIMARY KEY,
     email VARCHAR(255) UNIQUE NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
+    reset_token VARCHAR(255),
+    reset_token_expires TIMESTAMP NULL,
     full_name VARCHAR(255),
     is_admin BOOLEAN DEFAULT FALSE,
     email_verified BOOLEAN DEFAULT FALSE,
@@ -340,7 +337,79 @@ CREATE TABLE IF NOT EXISTS notifications (
 --     FOREIGN KEY (paid_by_user_id) REFERENCES users(user_id) ON DELETE CASCADE
 -- ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- -- Create indices for better query performance
+-- Recurring transactions table
+CREATE TABLE IF NOT EXISTS recurring_transactions (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    amount DECIMAL(15,2) NOT NULL,
+    description TEXT NOT NULL,
+    category VARCHAR(100) NOT NULL,
+    type ENUM('income', 'expense') NOT NULL,
+    frequency ENUM('daily', 'weekly', 'monthly', 'yearly') NOT NULL,
+    start_date DATE NOT NULL,
+    next_due_date DATE NOT NULL,
+    last_processed_date DATE,
+    is_active BOOLEAN DEFAULT TRUE,
+    payment_mode ENUM('auto', 'manual') DEFAULT 'auto',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- Gamification: Badges table
+CREATE TABLE IF NOT EXISTS badges (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    code VARCHAR(50) UNIQUE NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    description TEXT,
+    icon VARCHAR(10),
+    criteria_type VARCHAR(50),
+    criteria_threshold INT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_code (code)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Gamification: User badges table (tracks which users have which badges)
+CREATE TABLE IF NOT EXISTS user_badges (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    badge_id INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (badge_id) REFERENCES badges(id) ON DELETE CASCADE,
+    UNIQUE KEY unique_user_badge (user_id, badge_id),
+    INDEX idx_user_badges (user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Create indices for better query performance
 -- CREATE INDEX idx_group_members_user ON group_members(user_id);
 -- CREATE INDEX idx_group_balances_user ON group_balances(user_id);
 -- CREATE INDEX idx_group_expenses_paid_by ON group_expenses(paid_by_user_id);
+
+-- ============================================
+-- SCHEMA UPDATES / MIGRATIONS
+-- ============================================
+-- Add these ALTER TABLE statements if upgrading an existing database
+
+-- Add payment_mode column to recurring_transactions (for Auto-Pay vs Manual feature)
+ALTER TABLE recurring_transactions 
+ADD COLUMN IF NOT EXISTS payment_mode ENUM('auto', 'manual') DEFAULT 'auto' AFTER is_active;
+
+-- Add password reset columns to users table (for Forgot Password feature)
+ALTER TABLE users 
+ADD COLUMN IF NOT EXISTS reset_token VARCHAR(255) AFTER password_hash,
+ADD COLUMN IF NOT EXISTS reset_token_expires TIMESTAMP NULL AFTER reset_token;
+
+-- Note: Run these ALTER statements only once when upgrading from an older version
+-- For fresh installations, these columns should be added directly to the CREATE TABLE statements above
+-- Insert sample badges if they don't exist
+INSERT INTO badges (code, name, description, icon, criteria_type, criteria_threshold) VALUES
+('EARLY_BIRD', 'Early Bird', 'One of the first 100 users', '🐦', 'signup_count', 100),
+('SAVER_BRONZE', 'Bronze Saver', 'Saved ₹10,000 in goals', '🥉', 'goal_amount', 10000),
+('SAVER_SILVER', 'Silver Saver', 'Saved ₹50,000 in goals', '🥈', 'goal_amount', 50000),
+('SAVER_GOLD', 'Gold Saver', 'Saved ₹100,000 in goals', '🥇', 'goal_amount', 100000),
+('TRACKER_PRO', 'Tracker Pro', 'Logged 100 transactions', '📊', 'transaction_count', 100),
+('BUDGET_MASTER', 'Budget Master', 'Created 10 budgets', '💰', 'budget_count', 10),
+('SPLIT_EXPERT', 'Split Expert', 'Created 20 split requests', '🤝', 'split_count', 20),
+('STREAK_WEEK', '7-Day Streak', 'Logged transactions for 7 consecutive days', '🔥', 'streak_days', 7),
+('STREAK_MONTH', '30-Day Streak', 'Logged transactions for 30 consecutive days', '⭐', 'streak_days', 30)
+ON DUPLICATE KEY UPDATE name=VALUES(name);
