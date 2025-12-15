@@ -406,6 +406,33 @@ ALTER TABLE users
 ADD COLUMN IF NOT EXISTS reset_token VARCHAR(255) AFTER password_hash,
 ADD COLUMN IF NOT EXISTS reset_token_expires TIMESTAMP NULL AFTER reset_token;
 
+-- Savings Challenges Table
+CREATE TABLE IF NOT EXISTS savings_challenges (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    start_date DATE NOT NULL,
+    end_date DATE NOT NULL,
+    target_category VARCHAR(100) DEFAULT 'total_spend',
+    winning_criteria VARCHAR(50) DEFAULT 'lowest_spend',
+    status ENUM('upcoming', 'active', 'completed') DEFAULT 'upcoming',
+    created_by_user_id INT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (created_by_user_id) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Challenge Participants Table
+CREATE TABLE IF NOT EXISTS challenge_participants (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    challenge_id INT NOT NULL,
+    user_id INT NOT NULL,
+    joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    current_score DECIMAL(10, 2) DEFAULT 0.00,
+    FOREIGN KEY (challenge_id) REFERENCES savings_challenges(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    UNIQUE KEY unique_participation (challenge_id, user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- Note: Run these ALTER statements only once when upgrading from an older version
 -- For fresh installations, these columns should be added directly to the CREATE TABLE statements above
 -- Insert sample badges if they don't exist
