@@ -451,6 +451,45 @@ async function initializeDatabase() {
             }
         }
 
+        // Migration: Ensure group_id column exists in budgets
+        try {
+            await dbConnection.execute(`
+                ALTER TABLE budgets
+                ADD COLUMN group_id INT DEFAULT NULL,
+                ADD FOREIGN KEY (group_id) REFERENCES expense_groups(id) ON DELETE CASCADE
+            `);
+        } catch (error) {
+            if (!error.message.includes('Duplicate column name')) {
+                console.error('Migration Error (budgets.group_id):', error.message);
+            }
+        }
+
+        // Migration: Ensure group_id column exists in obligations
+        try {
+            await dbConnection.execute(`
+                ALTER TABLE obligations
+                ADD COLUMN group_id INT DEFAULT NULL,
+                ADD FOREIGN KEY (group_id) REFERENCES expense_groups(id) ON DELETE CASCADE
+            `);
+        } catch (error) {
+            if (!error.message.includes('Duplicate column name')) {
+                console.error('Migration Error (obligations.group_id):', error.message);
+            }
+        }
+
+        // Migration: Ensure group_id column exists in goals
+        try {
+            await dbConnection.execute(`
+                ALTER TABLE goals
+                ADD COLUMN group_id INT DEFAULT NULL,
+                ADD FOREIGN KEY (group_id) REFERENCES expense_groups(id) ON DELETE CASCADE
+            `);
+        } catch (error) {
+            if (!error.message.includes('Duplicate column name')) {
+                console.error('Migration Error (goals.group_id):', error.message);
+            }
+        }
+
         // Create default admin user if it doesn't exist
         const defaultAdminEmail = 'praveenreddy2621@gmail.com';
         const defaultAdminPassword = 'Praveen@1626';

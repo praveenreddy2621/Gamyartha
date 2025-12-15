@@ -1,7 +1,9 @@
 // Notification System
 // Get API base URL
 const getApiBaseUrl = () => {
-    return `${window.ENV?.BACKEND_API || 'http://localhost:3001'}/api`;
+    // Handle empty string correctly (production case)
+    const apiBase = window.ENV?.BACKEND_API;
+    return `${apiBase !== undefined ? apiBase : 'http://localhost:3001'}/api`;
 };
 
 let notificationsData = [];
