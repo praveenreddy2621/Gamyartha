@@ -4177,8 +4177,16 @@ const renderAdminPanel = async () => {
                         </div>
                         <input type="text" id="new-challenge-desc" placeholder="Description" class="border p-2 rounded w-full mb-4">
                         <button onclick="createAdminChallenge()" class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">Create Challenge</button>
-                     </div>
                 </div>
+                 <!-- Existing Challenges List -->
+                 <div class="mt-6 bg-white rounded-lg shadow overflow-hidden">
+                    <div class="p-4 border-b border-gray-200">
+                        <h4 class="text-md font-bold text-gray-800">Active & Upcoming Challenges</h4>
+                    </div>
+                    <div id="admin-challenges-list" class="divide-y divide-gray-200">
+                        <div class="p-4 text-center text-gray-500">Loading challenges...</div>
+                    </div>
+                 </div>
             </div>
 
             </div> <!-- Close admin-content-area -->
@@ -4215,7 +4223,8 @@ window.switchAdminTab = (tabName) => {
     if (tabName === 'users') loadAdminUsers();
     if (tabName === 'transactions') loadAdminTransactions();
     if (tabName === 'badges') loadAdminBadges();
-    // 'challenges' tab is static form for now, no load needed
+    if (tabName === 'badges') loadAdminBadges();
+    if (tabName === 'challenges') loadAdminChallenges();
 };
 
 window.createAdminChallenge = async () => {
@@ -4261,6 +4270,64 @@ window.createAdminChallenge = async () => {
     } catch (error) {
         console.error('Error creating challenge:', error);
         setAlert('Network error', 'error');
+    }
+};
+
+const loadAdminChallenges = async () => {
+    try {
+        const response = await fetch(`${API_BASE_URL}/challenges`, {
+            headers: { 'Authorization': `Bearer ${appState.token}` }
+        });
+        const data = await response.json();
+
+        const listContainer = document.getElementById('admin-challenges-list');
+        if (!data.challenges || data.challenges.length === 0) {
+            listContainer.innerHTML = '<div class="p-4 text-center text-gray-500">No active or upcoming challenges.</div>';
+            return;
+        }
+
+        listContainer.innerHTML = data.challenges.map(c => `
+            <div class="p-4 flex justify-between items-center hover:bg-gray-50">
+                <div>
+                    <h5 class="font-bold text-gray-800">${c.name}</h5>
+                    <p class="text-sm text-gray-600">${c.description}</p>
+                    <div class="text-xs text-gray-400 mt-1 space-x-2">
+                        <span>📅 ${new Date(c.start_date).toLocaleDateString()} - ${new Date(c.end_date).toLocaleDateString()}</span>
+                        <span class="bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded">${c.status || 'upcoming'}</span>
+                        <span class="bg-gray-100 px-2 py-0.5 rounded">Target: ${c.target_category}</span>
+                    </div>
+                </div>
+                <button onclick="deleteAdminChallenge(${c.id}, '${c.name.replace(/'/g, "\\'")}')" 
+                        class="ml-4 text-red-600 hover:text-red-800 border border-red-200 px-3 py-1 rounded text-sm hover:bg-red-50 transition">
+                    <i class="fas fa-trash-alt"></i> Delete
+                </button>
+            </div>
+        `).join('');
+
+    } catch (error) {
+        console.error("Error loading challenges:", error);
+        document.getElementById('admin-challenges-list').innerHTML = '<div class="p-4 text-red-500">Failed to load challenges</div>';
+    }
+};
+
+window.deleteAdminChallenge = async (id, name) => {
+    if (!confirm(`Are you sure you want to delete the challenge "${name}"? This cannot be undone.`)) return;
+
+    try {
+        const response = await fetch(`${API_BASE_URL}/challenges/${id}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${appState.token}` }
+        });
+
+        if (response.ok) {
+            setAlert('Challenge deleted successfully', 'success');
+            loadAdminChallenges(); // Refresh list
+        } else {
+            const data = await response.json();
+            setAlert(data.error || 'Failed to delete challenge', 'error');
+        }
+    } catch (error) {
+        setAlert('Network error while deleting', 'error');
     }
 };
 

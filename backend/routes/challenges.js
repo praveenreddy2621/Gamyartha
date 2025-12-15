@@ -127,6 +127,26 @@ router.post('/create', authenticateToken, async (req, res) => {
         console.error('Error creating challenge:', error);
         res.status(500).json({ error: 'Failed to create challenge' });
     }
+
+});
+
+// 5. Delete Challenge (Admin Only)
+router.delete('/:id', authenticateToken, async (req, res) => {
+    try {
+        if (!req.user.is_admin) {
+            return res.status(403).json({ error: 'Access denied. Admins only.' });
+        }
+
+        const challengeId = req.params.id;
+
+        // Delete challenge (cascade will handle participants)
+        await req.pool.execute('DELETE FROM savings_challenges WHERE id = ?', [challengeId]);
+
+        res.json({ success: true, message: 'Challenge deleted successfully' });
+    } catch (error) {
+        console.error('Error deleting challenge:', error);
+        res.status(500).json({ error: 'Failed to delete challenge' });
+    }
 });
 
 module.exports = router;
