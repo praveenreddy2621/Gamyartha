@@ -4817,6 +4817,7 @@ const initializeAppAndAuth = async () => {
                     appState.userEmail = null;
                     appState.userName = null;
                     appState.isAdmin = false;
+                    setAlert('Your session has expired. Please log in again.', 'info');
                 } else {
                     // Other server error, don't clear token (might be temporary network issue)
                     console.error('Failed to verify token due to server error, keeping session:', response.status);

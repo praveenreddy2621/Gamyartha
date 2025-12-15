@@ -1058,6 +1058,26 @@ app.post('/api/transactions', authenticateToken, async (req, res) => {
         );
         connection.release();
 
+        // Send transaction email if alerts are enabled
+        if (userRows.length > 0 && userRows[0].email_alerts_enabled) {
+            const user = userRows[0];
+            try {
+                // Determine transaction type for email transparency
+                const transactionTypeLabel = type === 'expense' ? 'Expense' : 'Income';
+
+                await mailerUtils.sendEmail('transactionAlert', {
+                    to_email: user.email,
+                    user_name: user.full_name || user.email.split('@')[0],
+                    amount: amount,
+                    description: description,
+                    category: category,
+                    transaction_type: transactionTypeLabel
+                });
+            } catch (emailError) {
+                console.error('Transaction email failed:', emailError);
+            }
+        }
+
         const response = {
             message: 'Transaction added successfully',
             transactionId: result.insertId
