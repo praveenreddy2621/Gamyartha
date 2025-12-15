@@ -42,7 +42,9 @@ const appState = {
     // Groups state
     groups: [],
     groupBalances: {},
-    selectedGroupId: null,
+    currentGroupMembers: [], // Store current group members for shared dashboard
+    selectedGroupId: null, // For the groups management view
+
 
     // Budgets state
     budgets: [],
@@ -135,6 +137,28 @@ const isDueToday = (date) => {
     return due.toDateString() === today.toDateString();
 };
 
+// --- DYNAMIC MODULE LOADER WRAPPERS ---
+// Helper to ensure groups module is loaded before calling its functions
+const openCreateGroupModalWrapper = (type) => {
+    // If function exists globally (attached by groups.js), call it
+    if (window.showCreateGroupModal) {
+        window.showCreateGroupModal(type);
+    } else {
+        // Dynamic import if not yet loaded
+        import('./js/groups.js').then(module => {
+            // Initialize if needed (though showCreateGroupModal is stand-alone usually)
+            module.initGroups({
+                apiBaseUrl: API_BASE_URL,
+                appState: appState,
+                setAlert: setAlert
+            });
+            // Re-check global or use module export
+            if (window.showCreateGroupModal) window.showCreateGroupModal(type);
+        }).catch(err => console.error("Failed to load groups module:", err));
+    }
+};
+window.openCreateGroupModalWrapper = openCreateGroupModalWrapper;
+
 const getSpeechLocale = (lang) => {
     switch (lang) {
         case 'hi': return 'hi-IN';
@@ -220,7 +244,7 @@ const computeSummary = () => {
 // --- RENDER FUNCTIONS (DOM Manipulation) ---
 
 const renderHeaderDetails = () => {
-    const ledgerTitleText = appState.isShared ? T('LEDGER_TITLE_SHARED') : T('LEDGER_TITLE_PRIVATE');
+    const ledgerTitleText = 'Dashboard';
     let viewButtonText, newView;
 
     // Simplified navigation: toggle between Dashboard, Profile, and Admin (if applicable)
@@ -234,6 +258,9 @@ const renderHeaderDetails = () => {
         viewButtonText = T('GO_TO_DASHBOARD');
         newView = 'dashboard';
     } else if (appState.currentMainView === 'networth') {
+        viewButtonText = T('GO_TO_DASHBOARD');
+        newView = 'dashboard';
+    } else if (appState.currentMainView === 'groups') {
         viewButtonText = T('GO_TO_DASHBOARD');
         newView = 'dashboard';
     } else if (appState.currentMainView === 'calendar') {
@@ -252,16 +279,36 @@ const renderHeaderDetails = () => {
             D.adminBtn.classList.remove('hidden');
             D.adminBtn.onclick = () => {
                 appState.currentMainView = 'admin';
+                localStorage.setItem('currentMainView', 'admin');
                 updateUI();
             };
         }
     }
 
+    const familyBtnText = appState.isShared ? 'Switch to Private' : 'Family & Groups';
+    const familyBtnClass = appState.isShared ? 'bg-gray-500 hover:bg-gray-600' : 'bg-emerald-500 hover:bg-emerald-600';
+    const familyBtnLabel = appState.isShared ? 'Private' : 'Family';
+
+    // Group Selector (Only if shared)
+    let groupSelectorHtml = '';
+    if (appState.isShared && appState.groups && appState.groups.length > 0) {
+        const options = appState.groups.map(g => `<option value="${g.id}" ${g.id == appState.currentGroupId ? 'selected' : ''}>${g.group_name}</option>`).join('');
+        groupSelectorHtml = `
+            <select id="group-selector" class="ml-1 text-xs bg-white text-gray-800 border border-gray-300 rounded-full px-2 py-1 focus:outline-none">
+                ${options}
+            </select>
+            <button id="manage-groups-btn" class="ml-1 text-xs bg-blue-500 text-white px-2 py-1 rounded-full" title="Manage Groups">⚙️</button>
+        `;
+    }
+
     D.ledgerTitle.innerHTML = `
-                <span class="font-semibold truncate">${ledgerTitleText}</span>
                 <button id="view-toggle-btn" class="ml-2 text-xs bg-indigo-500 hover:bg-indigo-600 text-white px-3 py-1 rounded-full font-medium transition duration-150">
                     ${viewButtonText}
                 </button>
+                <button id="groups-btn" class="ml-1 text-xs ${familyBtnClass} text-white px-3 py-1 rounded-full font-medium transition duration-150" title="${familyBtnText}">
+                    <i class="fas fa-users mr-1"></i> ${familyBtnLabel}
+                </button>
+                ${groupSelectorHtml}
                 <button id="wealth-btn" class="ml-1 text-xs bg-yellow-500 hover:bg-yellow-600 text-white px-3 py-1 rounded-full font-medium transition duration-150" title="Net Worth & Assets">
                     💰
                 </button>
@@ -275,6 +322,144 @@ const renderHeaderDetails = () => {
         localStorage.setItem('currentMainView', newView);
         updateUI();
     };
+
+    document.getElementById('groups-btn').onclick = async () => {
+        if (appState.isShared) {
+            // Switch to Private
+            appState.isShared = false;
+            // Persist Private Mode
+            fetch(`${API_BASE_URL}/user/settings`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${appState.token}` },
+                body: JSON.stringify({ key: 'current_mode', value: 'private' })
+            });
+
+            appState.currentGroupId = null;
+            appState.currentMainView = 'dashboard';
+            localStorage.setItem('currentMainView', 'dashboard');
+            // Clear data to prevent personal data from showing in shared mode (or vice versa)
+            appState.transactions = [];
+            appState.goals = [];
+            appState.obligations = [];
+            appState.budgets = [];
+
+            await initializeListeners();
+            updateUI();
+        } else {
+            // Switch to Shared
+            // Ensure groups are loaded
+            if (!appState.groups || appState.groups.length === 0) {
+                try {
+                    const response = await fetch(`${API_BASE_URL}/groups`, {
+                        headers: { 'Authorization': `Bearer ${appState.token}` }
+                    });
+                    const data = await response.json();
+                    appState.groups = data.groups || [];
+                } catch (e) { console.error("Error fetching groups:", e); }
+            }
+
+            // Ensure appState.groups is populated correctly
+            // If it's empty, we fetch.
+            // If fetching returns empty, we prompt creation.
+            // If fetch returns groups, we MUST select one if none is selected, OR if the currently selected one is not in the list (stale).
+
+            if (!appState.groups || appState.groups.length === 0) {
+                // Try fetching again to be sure
+                try {
+                    const response = await fetch(`${API_BASE_URL}/groups`, { headers: { 'Authorization': `Bearer ${appState.token}` } });
+                    if (response.ok) {
+                        const data = await response.json();
+                        appState.groups = data.groups || [];
+                    }
+                } catch (e) { console.error("Error fetching groups on switch", e); }
+            }
+
+            if (appState.groups.length === 0) {
+                // No groups exist. Stay in 'dashboard' but show Empty State via renderFamilyHeader or special state?
+                // Actually, if we set currentMainView = 'groups', it shows the list/creappState.currentMainView = 'groups';ation UI.
+                // The user wants "Multiplayer" -> "Family Dashboard".
+                // If they have no groups, they can't have a Family Dashboard really.
+                // Let's force them to create a Family Group.
+                if (confirm("You need to create a Family Group first. Create one now?")) {
+                    openCreateGroupModalWrapper('family');
+                } else {
+                    // Cancelled, stay on private
+                    return;
+                }
+            } else {
+                // We have groups.
+                // FILTER for FAMILY groups only
+                const familyGroups = appState.groups.filter(g => g.group_type === 'family');
+
+                if (familyGroups.length === 0) {
+                    // Has general groups but NO family groups
+                    if (confirm("You need to create a dedicated Family Group to use the Family Ledger. Create one now?")) {
+                        openCreateGroupModalWrapper('family');
+                    }
+                    return;
+                }
+
+                // We have family groups
+                appState.isShared = true;
+                appState.currentMainView = 'dashboard';
+                localStorage.setItem('currentMainView', 'dashboard');
+                // Clear private data
+                appState.transactions = []; appState.goals = []; appState.obligations = []; appState.budgets = [];
+
+                // Validate selection (must be a family group)
+                const groupExists = appState.currentGroupId && familyGroups.find(g => g.id == appState.currentGroupId);
+
+                if (!groupExists) {
+                    appState.currentGroupId = familyGroups[0].id; // Default to first FAMILY group
+                }
+
+                // Persist Shared Mode and Current Group
+                fetch(`${API_BASE_URL}/user/settings`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${appState.token}` },
+                    body: JSON.stringify({ key: 'current_mode', value: 'shared' })
+                });
+                fetch(`${API_BASE_URL}/user/settings`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${appState.token}` },
+                    body: JSON.stringify({ key: 'current_group', value: appState.currentGroupId })
+                });
+
+                await initializeListeners();
+                updateUI();
+            }
+        }
+    };
+
+    if (document.getElementById('group-selector')) {
+        document.getElementById('group-selector').onchange = async (e) => {
+            appState.currentGroupId = e.target.value;
+
+            // Persist Group Selection
+            fetch(`${API_BASE_URL}/user/settings`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${appState.token}` },
+                body: JSON.stringify({ key: 'current_group', value: appState.currentGroupId })
+            });
+
+            // Clear data before loading new group
+            appState.transactions = [];
+            appState.goals = [];
+            appState.obligations = [];
+            appState.budgets = [];
+
+            await initializeListeners();
+            updateUI();
+        };
+    }
+
+    if (document.getElementById('manage-groups-btn')) {
+        document.getElementById('manage-groups-btn').onclick = () => {
+            appState.currentMainView = 'groups';
+            localStorage.setItem('currentMainView', 'groups');
+            updateUI();
+        };
+    }
 
     document.getElementById('wealth-btn').onclick = () => {
         appState.currentMainView = 'networth';
@@ -293,148 +478,118 @@ const renderDashboard = () => {
     const summary = computeSummary();
     const dueAlertCount = appState.obligations.filter(o => !o.isPaid && isDueSoon(o.dueDate)).length;
 
+    const familyHeaderHtml = appState.isShared ? renderFamilyHeader() : '';
 
     D.logoutBtn.textContent = T('LOGOUT');
     D.logoutBtn.classList.remove('hidden');
     D.headerDetails.classList.remove('hidden');
 
-    // Generate HTML structure
     D.mainContent.innerHTML = `
-        <div class="w-full max-w-full mx-auto overflow-x-hidden">
-            <!-- Shared Ledger Toggle -->
-            <div class="p-3 md:p-4 bg-white border-b border-gray-200 flex justify-between items-center text-sm sticky top-0 z-10 shadow-sm">
-                <span class="font-medium text-gray-700">${T('TOGGLE_MODE')}</span>
-                <label class="flex items-center cursor-pointer">
-                    <div class="relative">
-                        <input type="checkbox" id="shared-toggle" class="sr-only" ${appState.isShared ? 'checked' : ''}>
-                        <div class="block ${appState.isShared ? 'bg-teal-500' : 'bg-gray-400'} w-12 h-7 md:w-14 md:h-8 rounded-full transition"></div>
-                        <div class="dot absolute left-1 top-1 bg-white w-5 h-5 md:w-6 md:h-6 rounded-full transition shadow-md ${appState.isShared ? 'transform translate-x-5 md:translate-x-6' : ''}"></div>
-                    </div>
-                    <div class="ml-2 md:ml-3 text-gray-700 font-semibold text-xs md:text-sm">
-                        ${appState.isShared && appState.currentGroupId ?
-            `Family: ${(appState.groups || []).find(g => String(g.id) === String(appState.currentGroupId))?.group_name || 'Shared'}` :
-            (appState.isShared ? T('MODE_SHARED') : T('MODE_PRIVATE'))}
-                    </div>
-                </label>
+        <div id="dashboard-container" class="space-y-6 pb-20 select-none">
+            ${familyHeaderHtml}
+
+            <!-- Summary Text -->
+            <div id="summary-section" class="px-2">
+                <h1 class="text-2xl font-bold text-gray-800">
+                    ${T(appState.isShared ? 'LEDGER_TITLE_SHARED' : 'LEDGER_TITLE_PRIVATE')}
+                </h1>
+                <p class="text-gray-500 text-sm">
+                    ${appState.isShared
+            ? 'Managing finances together'
+            : 'Here is your financial overview'}
+                </p>
             </div>
 
-            <!-- Due Date Alert Badge -->
-            ${dueAlertCount > 0 ? `
-                <div class="p-3 mx-2 my-3 md:m-4 bg-yellow-100 border border-yellow-400 text-yellow-800 rounded-lg font-semibold text-center shadow-md text-sm md:text-base">
-                    <span class="animate-pulse mr-2">🔔</span> ${dueAlertCount} ${T('OBLIGATIONS_TITLE')}!
+            <!-- Summary Cards -->
+            <div id="summary-cards" class="grid grid-cols-3 gap-3 px-1">
+                ${renderSummaryCards(summary)}
+            </div>
+
+            <!-- Main Actions Grid -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                 <!-- Transaction Entry -->
+                 <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden transform transition-all duration-300 hover:shadow-md">
+                     ${renderTransactionForm()}
+                 </div>
+
+                 <!-- Category Chart -->
+                 <div id="chart-container" class="bg-white rounded-xl shadow-sm border border-gray-100 p-4 transform transition-all duration-300 hover:shadow-md">
+                     <!-- Chart Rendered by JS -->
+                 </div>
+            </div>
+
+            <!-- Trackers Grid -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <!-- Obligations -->
+                <div id="obligations-tracker-container" class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                    <!-- JS Injected -->
                 </div>
-            ` : ''}
-
-            <!-- Main Dashboard Grid -->
-            <div class="p-2 md:p-4 grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
-                
-                <!-- Full Width: Summary Cards -->
-                <div class="lg:col-span-3">
-                    <div id="summary-cards" class="grid grid-cols-1 sm:grid-cols-3 gap-3 md:gap-4 bg-white p-3 md:p-4 rounded-xl shadow-sm border border-gray-100">
-                        ${renderSummaryCards(summary)}
-                    </div>
+                 <!-- Goals -->
+                <div id="goals-tracker-container" class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                    <!-- JS Injected -->
                 </div>
-
-                <!-- Left Column: inputs -->
-                <div class="lg:col-span-1 space-y-4 md:space-y-6">
-                    <!-- Add Transaction Form -->
-                    <div class="bg-white rounded-xl shadow-sm overflow-hidden border border-gray-100">
-                        ${renderTransactionForm()}
-                    </div>
+                 <!-- Budgets -->
+                <div id="budgets-tracker-container" class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                    <!-- JS Injected -->
                 </div>
+            </div>
 
-                <!-- Middle Column: Visuals & History -->
-                <div class="lg:col-span-1 space-y-4 md:space-y-6">
-                     <!-- Spending Insights Chart -->
-                    <div id="chart-container" class="bg-white rounded-xl shadow-sm p-3 md:p-4 border border-gray-100 overflow-hidden"></div>
 
-                    <!-- Transaction History -->
-                    <div id="history-container" class="bg-white rounded-xl shadow-sm p-3 md:p-4 border border-gray-100 max-h-[500px] md:max-h-[600px] overflow-y-auto"></div>
-                </div>
-
-                <!-- Right Column: Trackers -->
-                <div class="lg:col-span-1 space-y-4 md:space-y-6">
-                    <!-- Goal-Based Savings Tracker -->
-                    <div id="goals-tracker-container"></div>
-                    
-                    <!-- Due Date Alerts (Obligations) -->
-                    <div id="obligations-tracker-container"></div>
-
-                    <!-- Budgets Tracker -->
-                    <div id="budgets-tracker-container"></div>
-
-                    <!-- Split Expenses Section -->
-                    <div id="split-expenses-container"></div>
-                </div>
+            <!-- Transaction History -->
+            <div id="history-container" class="bg-white rounded-xl shadow-sm border border-gray-100 p-4 transition-all duration-300 hover:shadow-md">
+                <!-- List Rendered by JS -->
             </div>
         </div>
     `;
 
-    // Attach event listeners and render sub-components after injection
-    document.getElementById('shared-toggle').onchange = toggleSharedMode;
-    document.getElementById('transaction-form').onsubmit = handleAddTransaction;
-    document.getElementById('ai-analyze-btn').onclick = analyzeTransaction;
-    document.getElementById('voice-entry-btn').onclick = startVoiceRecognition;
-    document.getElementById('description-input').oninput = (e) => appState.description = e.target.value;
-    document.getElementById('amount-input').oninput = (e) => appState.amount = e.target.value;
-
-    // Initialize split expenses feature
-    import('./splits.js').then(splitsModule => {
-        splitsModule.initSplits({
-            apiBaseUrl: API_BASE_URL,
-            appState: appState,
-            formatCurrency: formatCurrency // Pass the utility function
-        });
-        // The initSplitFeature() is no longer needed as splits are handled in the profile tab.
-    }).catch(error => {
-        console.error('Error loading splits module:', error);
-    });
-
-    // Initialize groups feature
-    import('./js/groups.js').then(groupsModule => {
-        groupsModule.initGroups({
-            apiBaseUrl: API_BASE_URL,
-            appState: appState
-        });
-        // Load groups data
-        groupsModule.initializeGroupListeners();
-    }).catch(error => {
-        console.error('Error loading groups module:', error);
-    });
-
-    const businessCheckbox = document.getElementById('is-business-checkbox');
-    const gstInput = document.getElementById('gst-amount-input');
-    if (businessCheckbox) {
-        businessCheckbox.onchange = (e) => {
-            appState.isBusiness = e.target.checked;
-            gstInput.disabled = !appState.isBusiness;
-            gstInput.classList.toggle('bg-gray-100', !appState.isBusiness);
-            gstInput.classList.toggle('border-gray-300', appState.isBusiness);
-        };
-    }
-    if (gstInput) {
-        gstInput.oninput = (e) => appState.gstAmount = e.target.value;
-    }
-
+    renderCategoryChart(summary.expensesByCategory);
+    renderTransactionHistory();
     renderGoalTracker();
     renderObligationsTracker();
     renderBudgetsTracker();
 
-    // Hide/show trackers based on mode
-    if (appState.isShared) {
-        // In shared mode, hide personal features
-        document.getElementById('goals-tracker-container').style.display = 'none';
-        document.getElementById('obligations-tracker-container').style.display = 'none';
-        document.getElementById('budgets-tracker-container').style.display = 'none';
-    } else {
-        // In private mode, show personal features
-        document.getElementById('goals-tracker-container').style.display = 'block';
-        document.getElementById('obligations-tracker-container').style.display = 'block';
-        document.getElementById('budgets-tracker-container').style.display = 'block';
+    // Attach form listeners
+    document.getElementById('transaction-form').onsubmit = handleAddTransaction;
+    document.getElementById('voice-entry-btn').onclick = startVoiceRecognition; // Changed from startVoiceEntry
+    document.getElementById('ai-analyze-btn').onclick = analyzeTransaction;
+
+    // Type Toggles
+    document.getElementById('type-expense-btn').onclick = () => {
+        appState.type = 'expense';
+        updateUI(); // Changed from renderDashboard()
+    };
+    document.getElementById('type-income-btn').onclick = () => {
+        appState.type = 'income';
+        updateUI(); // Changed from renderDashboard()
+    };
+
+    // Description Input Auto-Resize/Animate
+    const descInput = document.getElementById('description-input');
+    descInput.addEventListener('input', (e) => {
+        appState.description = e.target.value;
+        const aiBtn = document.getElementById('ai-analyze-btn');
+        if (appState.description.length > 5 && !appState.amount) {
+            aiBtn.classList.add('animate-pulse');
+        } else {
+            aiBtn.classList.remove('animate-pulse');
+        }
+    });
+
+    // Checkbox listener
+    const bCheck = document.getElementById('is-business-checkbox');
+    if (bCheck) {
+        bCheck.onchange = (e) => {
+            appState.isBusiness = e.target.checked;
+            updateUI(); // Changed from renderDashboard()
+        };
+    }
+    const gstInput = document.getElementById('gst-amount-input');
+    if (gstInput) {
+        gstInput.oninput = (e) => appState.gstAmount = e.target.value;
     }
 
-    if (appState.type === 'expense') renderCategoryChart(summary.expensesByCategory);
-    renderTransactionHistory();
+    // Amount listener
+    document.getElementById('amount-input').oninput = (e) => appState.amount = e.target.value;
 };
 
 // window.addMoneyToGoal = async (goalId) => {
@@ -590,26 +745,31 @@ const loadProfileTabContent = (section) => {
         activeTab.classList.remove('bg-gray-100', 'text-gray-600');
     }
 
+    const wrapper = document.getElementById('profile-main-wrapper');
+    const content = document.getElementById('profile-content');
+    const header = document.getElementById('profile-header-container');
+
+    // Ensure consistent styling across all tabs (Reverted "Full View" for Groups)
+    if (wrapper) {
+        wrapper.classList.add('p-4', 'space-y-6', 'max-w-4xl', 'mx-auto');
+        wrapper.classList.remove('flex', 'flex-col', 'h-full', 'w-full', 'max-w-full');
+    }
+    if (content) {
+        content.classList.add('min-h-[600px]');
+        content.classList.remove('flex-1', 'h-full', 'w-full');
+        content.style.padding = '';
+    }
+
     // Load content
     if (section === 'groups') {
         import('./js/groups.js').then(async groupsModule => {
             groupsModule.initGroups({
                 apiBaseUrl: API_BASE_URL,
-                appState: appState
-            });
-            await groupsModule.initializeGroupListeners();
-            groupsModule.renderGroupsView(document.getElementById('profile-content'));
-        });
-    } else if (section === 'splits') {
-        import('./js/splits.js').then(splitsModule => {
-            // Initialize the module with necessary state and functions
-            splitsModule.initSplits({
-                apiBaseUrl: API_BASE_URL,
                 appState: appState,
                 setAlert: setAlert
             });
-            // Now render the view
-            splitsModule.renderSplitView(document.getElementById('profile-content'));
+            await groupsModule.initializeGroupListeners();
+            groupsModule.renderGroupsView(document.getElementById('profile-content'));
         });
     } else if (section === 'badges') {
         import('./js/gamification.js').then(module => module.renderBadgesView(document.getElementById('profile-content')));
@@ -669,10 +829,10 @@ const handleCurrencyChange = async (e) => {
     }
 };
 
-const renderUserProfile = () => { // This is now the main container for profile tabs
+const renderUserProfile = (initialTab = 'details') => { // This is now the main container for profile tabs
     D.mainContent.innerHTML = `
-                <div class="p-4 space-y-6">
-                    <div class="flex justify-between items-center border-b pb-2 mb-4">
+                <div id="profile-main-wrapper" class="p-4 space-y-6 transition-all duration-300">
+                    <div id="profile-header-container" class="flex justify-between items-center border-b pb-2 mb-4">
                         <h2 class="text-3xl font-bold text-indigo-700">${T('PROFILE_TITLE')}</h2>
                     </div>
 
@@ -683,9 +843,6 @@ const renderUserProfile = () => { // This is now the main container for profile 
                         </button>
                         <button id="profile-groups-tab" class="px-4 py-2 text-sm font-medium rounded-md transition profile-tab bg-gray-100 text-gray-600 hover:bg-white shrink-0">
                             👥 Groups
-                        </button>
-                        <button id="profile-splits-tab" class="px-4 py-2 text-sm font-medium rounded-md transition profile-tab bg-gray-100 text-gray-600 hover:bg-white shrink-0">
-                            🪓 Splits
                         </button>
                         <button id="profile-recurring-tab" class="px-4 py-2 text-sm font-medium rounded-md transition profile-tab bg-gray-100 text-gray-600 hover:bg-white shrink-0">
                             🔄 Subscriptions
@@ -710,13 +867,12 @@ const renderUserProfile = () => { // This is now the main container for profile 
 
     document.getElementById('profile-details-tab').onclick = () => loadProfileTabContent('details');
     document.getElementById('profile-groups-tab').onclick = () => loadProfileTabContent('groups');
-    document.getElementById('profile-splits-tab').onclick = () => loadProfileTabContent('splits');
     document.getElementById('profile-badges-tab').onclick = () => loadProfileTabContent('badges');
     document.getElementById('profile-recurring-tab').onclick = () => loadProfileTabContent('recurring');
     document.getElementById('profile-timetravel-tab').onclick = () => loadProfileTabContent('timetravel');
     document.getElementById('profile-challenges-tab').onclick = () => loadProfileTabContent('challenges');
 
-    loadProfileTabContent('details'); // Load default content
+    loadProfileTabContent(initialTab); // Load default content
 };
 
 const renderUserProfileDetails = (container) => {
@@ -750,7 +906,7 @@ const renderUserProfileDetails = (container) => {
                             </div>
                         </div>
                     </div>
-                    
+
                     <!-- Currency Settings -->
                     <div class="bg-white p-6 rounded-xl shadow-2xl border border-gray-200">
                         <h3 class="text-xl font-bold text-gray-800 mb-4 border-b pb-2">
@@ -812,7 +968,7 @@ const renderUserProfileDetails = (container) => {
                     <!-- Danger Zone -->
                     <div class="bg-white p-6 rounded-xl shadow-2xl border border-red-200">
                         <h3 class="text-xl font-bold text-red-800 mb-4 border-b border-red-100 pb-2">
-                            Delect Account 
+                            Delect Account
                         </h3>
                         <div class="space-y-4">
                             <p class="text-sm text-gray-600">
@@ -892,25 +1048,25 @@ const renderAuthUI = () => {
                 <div class="flex items-center justify-center min-h-[80vh] px-4">
                     <div class="w-full max-w-sm p-8 mt-12 auth-card rounded-xl" style="animation: flipIn 0.7s ease-out;">
                         <h2 class="text-3xl font-extrabold text-indigo-700 text-center mb-6">${title}</h2>
-                        
+
                         <form id="auth-form" class="space-y-6">
                             <div>
                                 <label for="email" class="sr-only">Email</label>
                                 <input type="email" id="auth-email" required placeholder="${T('EMAIL_PLACEHOLDER')}"
                                        class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 text-gray-900" />
                             </div>
-                            
+
                             <div>
                                 <label for="password" class="sr-only">Password</label>
                                 <input type="password" id="auth-password" required placeholder="${T('PASSWORD_PLACEHOLDER')}"
                                        class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 text-gray-900" />
                             </div>
-                            
+
                             <button type="submit" id="auth-submit-btn" class="auth-button w-full py-3 px-4 rounded-lg text-lg font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 transition duration-150">
                                 ${buttonText}
                             </button>
                         </form>
-                        
+
                         ${isLogin ? `
                             <div class="mt-4 text-center">
                                 <button id="forgot-password-btn" class="text-sm font-medium text-red-500 hover:text-red-700 transition duration-150">
@@ -984,20 +1140,133 @@ const renderSummaryCards = (summary) => {
             `;
 };
 
+// --- FAMILY / GROUP DASHBOARD HEADER ---
+const renderFamilyHeader = () => {
+    if (!appState.isShared) return '';
+
+    // If no group is selected or groups list is empty (after switch), show Create prompt
+    // This handles the "Group Not Found" by preventing the header from rendering broken state
+    if (!appState.currentGroupId || !appState.groups.find(g => g.id == appState.currentGroupId)) {
+        return `
+            <div id="family-header-container" class="mb-6 p-4 bg-gradient-to-r from-teal-500 to-emerald-600 rounded-xl shadow-lg text-white flex justify-between items-center">
+                <div>
+                    <h2 class="text-2xl font-bold"><i class="fas fa-users"></i> Family Ledger</h2>
+                    <p class="text-teal-100 text-sm mt-1">Select a group or create a new one to start.</p>
+                </div>
+                <button onclick="openCreateGroupModalWrapper('family')" class="bg-white text-teal-600 px-4 py-2 rounded-lg font-bold shadow hover:bg-teal-50 transition">
+                    Create Family Group
+                </button>
+            </div>
+        `;
+    }
+
+    const currentGroup = appState.groups.find(g => g.id == appState.currentGroupId);
+    const groupName = currentGroup ? currentGroup.group_name : 'Family Group';
+    const members = appState.currentGroupMembers || [];
+    const memberCount = members.length > 0 ? members.length : (currentGroup.member_count || 1);
+
+    // Avatar list
+    const avatars = members.map(m => `
+        <div class="w-8 h-8 rounded-full bg-teal-200 border-2 border-white flex items-center justify-center text-xs font-bold text-teal-800 -ml-2 first:ml-0" title="${m.user_name}">
+            ${m.user_name ? m.user_name.charAt(0).toUpperCase() : '?'}
+        </div>
+    `).join('');
+
+    // List available family groups for the dropdown
+    const familyGroups = appState.groups.filter(g => g.group_type === 'family');
+
+    return `
+        <div id="family-header-container" class="mb-6 p-4 bg-gradient-to-r from-teal-500 to-emerald-600 rounded-xl shadow-lg text-white">
+            <div class="flex justify-between items-start">
+                <div>
+                    <h2 class="text-2xl font-bold flex items-center gap-2">
+                        <i class="fas fa-home"></i> ${groupName} Dashboard
+                    </h2>
+                    <p class="text-teal-100 text-sm mt-1">Shared Family Ledger</p>
+
+                    <div class="flex items-center mt-3 ml-2">
+                        ${avatars}
+                        <div class="ml-3 text-xs text-teal-100">${memberCount} Members</div>
+                    </div>
+                </div>
+                <div class="flex gap-2">
+                     <div class="relative inline-block text-left">
+                        <select id="header-group-selector" onchange="appState.currentGroupId = this.value; fetch('${API_BASE_URL}/user/settings', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + appState.token }, body: JSON.stringify({ key: 'current_group', value: this.value }) }); appState.transactions=[]; appState.goals=[]; initializeListeners().then(updateUI);" class="bg-teal-700 text-white text-sm rounded-lg px-2 py-1 outline-none border border-teal-600 hover:bg-teal-800 transition">
+                            ${familyGroups.map(g => `<option value="${g.id}" ${g.id == appState.currentGroupId ? 'selected' : ''}>${g.group_name}</option>`).join('')}
+                        </select>
+                    </div>
+                    <button onclick="triggerInviteFlow(${appState.currentGroupId})" class="bg-white text-teal-600 px-3 py-2 rounded-lg text-sm font-bold shadow hover:bg-teal-50 transition flex items-center gap-1">
+                        <i class="fas fa-user-plus"></i> Invite
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+};
+
+// --- INVITE FLOW LOGIC ---
+const triggerInviteFlow = async (groupId) => {
+    try {
+        const response = await fetch(`${API_BASE_URL}/groups/${groupId}/invite`, {
+            headers: { 'Authorization': `Bearer ${appState.token}` }
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.message || 'Failed to generate link');
+        }
+
+        const data = await response.json();
+        const link = `${window.location.origin}/?join=${data.invite_token}`;
+
+        showInviteModal(link);
+
+    } catch (error) {
+        console.error('Error inviting member:', error);
+        setAlert(error.message, 'error');
+    }
+};
+window.triggerInviteFlow = triggerInviteFlow; // Make globally accessible
+
+const showInviteModal = (link) => {
+    const modal = document.createElement('div');
+    modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4';
+    modal.innerHTML = `
+        <div class="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm animate-fade-in relative">
+            <button class="absolute top-2 right-2 text-gray-400 hover:text-gray-600" onclick="this.closest('.fixed').remove()">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+            </button>
+            <div class="text-center mb-4">
+                <div class="w-12 h-12 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-2 text-indigo-600">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" /></svg>
+                </div>
+                <h3 class="text-lg font-bold text-gray-800">Invite Members</h3>
+                <p class="text-sm text-gray-500">Share this link to add members to the group.</p>
+            </div>
+
+            <div class="bg-gray-50 p-3 rounded-lg break-all text-xs text-gray-600 font-mono border border-gray-200 mb-4 select-all">
+                ${link}
+            </div>
+
+            <button onclick="navigator.clipboard.writeText('${link}').then(() => { this.innerText = 'Copied!'; setTimeout(() => this.innerText = 'Copy Link', 2000); })"
+                    class="w-full py-2 bg-indigo-600 text-white rounded-lg font-semibold hover:bg-indigo-700 transition">
+                Copy Link
+            </button>
+        </div>
+    `;
+    document.body.appendChild(modal);
+};
+window.showInviteModal = showInviteModal; // Make globally accessible
+
 const renderTransactionForm = () => {
     const isExpense = appState.type === 'expense';
     return `
                 <form id="transaction-form" class="p-4">
                     <h2 class="text-xl font-semibold text-gray-800 mb-4 border-b pb-2">
-                        ${appState.isShared ? `Add Shared Expense` : T('SMART_ENTRY_TITLE')}
+                        ${T('SMART_ENTRY_TITLE')}
                     </h2>
 
-                    <!-- Type Selector Tabs (Locked to Expense in Shared Mode) -->
-                    ${appState.isShared ? `
-                        <div class="mb-4 p-3 bg-teal-50 rounded-lg border border-teal-100 text-center text-sm text-teal-800">
-                             Adding to <strong>Family Ledger</strong>. Currently only <strong>Expenses</strong> are supported.
-                        </div>
-                    ` : `
+                    <!-- Type Selector Tabs -->
                     <div class="flex mb-4">
                         <button type="button" id="type-expense-btn"
                             class="flex-1 py-2 text-center font-medium rounded-l-lg transition ${isExpense ? 'bg-red-500 text-white shadow-lg' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}">
@@ -1008,7 +1277,6 @@ const renderTransactionForm = () => {
                             ${T('INCOME')}
                         </button>
                     </div>
-                    `}
 
                     <!-- Description/AI/Voice Input -->
                     <div class="space-y-3">
@@ -1035,7 +1303,7 @@ const renderTransactionForm = () => {
                             </div>
                         </div>
                     </div>
-                    
+
                     <!-- Category & Amount & GST -->
                     <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-4">
                         <div>
@@ -1051,7 +1319,7 @@ const renderTransactionForm = () => {
                                 class="mt-1 block w-full p-3 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500 text-lg"
                             />
                         </div>
-                        
+
                         <!-- Business & GST Fields -->
                         ${isExpense ? `
                             <div class="flex flex-col justify-end">
@@ -1067,7 +1335,7 @@ const renderTransactionForm = () => {
                             </div>
                         ` : '<div></div>'}
                     </div>
-                    
+
                     <button type="submit" ${appState.isSaving ? 'disabled' : ''}
                         class="mt-6 w-full py-3 px-4 border border-transparent rounded-lg shadow-md text-sm font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50 transition duration-150"
                     >
@@ -1104,7 +1372,7 @@ const renderGoalTracker = () => {
                                 ${isCompleted ? T('GOAL_COMPLETED') : new Date(goal.targetDate).toLocaleDateString()}
                             </span>
                         </div>
-                        
+
                         <p class="text-sm text-gray-600 mb-2">
                             Target: <span class="font-bold">${formatCurrency(goal.targetAmount)}</span>
                         </p>
@@ -1130,7 +1398,7 @@ const renderGoalTracker = () => {
                                         class="bg-green-600 text-white px-3 py-1 rounded text-sm">Add</button>
                             </div>
                         ` : ''}
-                        
+
                         <div class="flex justify-end space-x-3 mt-3 pt-2 border-t border-gray-200">
                            <button class="text-xs text-blue-600 hover:underline" onclick="window.editGoal(${goal.id}, '${goal.name.replace(/'/g, "\\'")}', ${goal.targetAmount}, '${goal.targetDate.toISOString().split('T')[0]}')">Edit</button>
                            <button class="text-xs text-red-600 hover:underline" onclick="window.deleteGoal(${goal.id})">Delete</button>
@@ -1346,11 +1614,11 @@ const renderBudgetsTracker = () => {
                                 ${isExceeded ? 'Exceeded' : 'On Track'}
                             </span>
                         </div>
-                        
+
                         <p class="text-sm text-gray-600 mb-2">
                             Budget: <span class="font-bold">${formatCurrency(budget.amount, budget.currency)}</span>
                         </p>
-        
+
                         <div class="w-full bg-gray-200 rounded-full h-2.5 mb-2">
                             <div class="${isExceeded ? 'bg-red-600' : 'bg-purple-600'} h-2.5 rounded-full" style="width: ${progress}%;"></div>
                         </div>
@@ -1378,7 +1646,7 @@ const renderBudgetsTracker = () => {
                             ${showForm ? 'Close' : T('add_new_budget')}
                         </button>
                     </div>
-        
+
                     ${showForm ? `
                         <form id="budget-form" class="p-4 mb-4 bg-white rounded-xl shadow-inner space-y-3">
                             <input name="budgetCategory" placeholder="${T('budget_category')}" required class="w-full p-2 border rounded" />
@@ -1386,7 +1654,7 @@ const renderBudgetsTracker = () => {
                             <button type="submit" class="w-full py-2 bg-purple-600 text-white rounded font-medium hover:bg-purple-700">${T('add_budget_button')}</button>
                         </form>
                     ` : ''}
-        
+
                     ${(appState.budgets || []).length === 0 ? `<p class="text-gray-500 text-center py-4">Set a budget to track your spending!</p>` : `
                         <div class="space-y-4">${budgetCards}</div>
                         <!-- Show More/Less Buttons -->
@@ -1445,15 +1713,15 @@ const renderCategoryChart = (expensesByCategory) => {
 
         return `
                     <g transform="translate(0, ${y})">
-                        <rect 
-                            x="90" y="0" 
-                            width="${widthPercentage * 2.5}px" 
-                            height="${barHeight}" 
+                        <rect
+                            x="90" y="0"
+                            width="${widthPercentage * 2.5}px"
+                            height="${barHeight}"
                             fill="${color}" rx="5"
                         />
                         <text x="0" y="${barHeight / 2 + 5}" font-size="12" fill="#4b5563" font-weight="bold" class="truncate w-10">${category}</text>
-                        <text 
-                            x="${95 + (widthPercentage * 2.5)}" y="${barHeight / 2 + 5}" 
+                        <text
+                            x="${95 + (widthPercentage * 2.5)}" y="${barHeight / 2 + 5}"
                             font-size="12" fill="#1f2937" font-weight="semibold"
                         >
                             ${formatCurrency(amount)}
@@ -1486,7 +1754,10 @@ const renderTransactionHistory = () => {
                     <div class="text-4xl mb-4">👨‍👩‍👧‍👦</div>
                     <h3 class="text-lg font-bold text-teal-800 mb-2">Welcome to your Family Ledger!</h3>
                     <p class="text-sm text-teal-600 mb-4">Start tracking shared expenses with your group.</p>
-                    <p class="text-xs text-gray-500">Expenses added here are visible to all group members.</p>
+                    <button onclick="window.triggerInviteFlow(${appState.currentGroupId})" class="bg-teal-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-teal-700 transition shadow">
+                        Invite Family Members
+                    </button>
+                    <p class="text-xs text-gray-500 mt-4">Expenses added here are visible to all group members.</p>
                 </div>
             `;
         } else {
@@ -1658,7 +1929,7 @@ const renderChatFAB = () => {
     ).join(' ')}
                         </div>
                     </div>
-                    
+
                     <!-- Mobile Tooltip (Animated) -->
                     <div class="fab-tooltip block md:hidden" style="right: 70px; max-width: 100px;">
                         <div class="fab-tooltip-text-container">
@@ -2041,7 +2312,7 @@ const handleChatQuery = async (e, fixedMessage = null) => {
 
             const utterance = new SpeechSynthesisUtterance(aiResponseText);
             // Select voice based on language if possible (basic implementation)
-            // utterance.lang = 'en-US'; 
+            // utterance.lang = 'en-US';
 
             utterance.onstart = () => {
                 appState.isSpeaking = true;
@@ -2104,6 +2375,16 @@ const updateUI = () => {
     // New logic to switch main views
     if (appState.currentMainView === 'profile') {
         renderUserProfile();
+    } else if (appState.currentMainView === 'groups') {
+        import('./js/groups.js').then(async groupsModule => {
+            groupsModule.initGroups({
+                apiBaseUrl: API_BASE_URL,
+                appState: appState,
+                setAlert: setAlert
+            });
+            await groupsModule.initializeGroupListeners();
+            groupsModule.renderGroupsView(D.mainContent);
+        });
     } else if (appState.currentMainView === 'networth') {
         import('./js/networth.js').then(module => {
             module.initNetWorth({ apiBaseUrl: API_BASE_URL, appState, setAlert });
@@ -2675,6 +2956,7 @@ window.switchToGroupDashboard = async (groupId) => {
 
     // 3. Set View to Dashboard
     appState.currentMainView = 'dashboard';
+    localStorage.setItem('currentMainView', 'dashboard');
 
     // 4. Persist Settings
     try {
@@ -2910,48 +3192,37 @@ const handleAddTransaction = async (e) => {
     updateUI(); // Show "Saving..."
 
     try {
-        let response;
+        let url = `${API_BASE_URL}/transactions`;
+        let body = {
+            amount: numericAmount,
+            description: appState.description.trim(),
+            category: appState.category,
+            type: appState.type,
+            is_business: appState.isBusiness,
+            gst_amount: numericGst
+        };
 
-        // CHECK MODE: If Shared Mode is ON, route to Group Split API
         if (appState.isShared && appState.currentGroupId) {
-            console.log('Adding transaction to Shared Group:', appState.currentGroupId);
-            // Groups use 'split' logic. By default, adding a transaction here means "I paid, split equally".
-            // For a simple "add transaction" flow, we might assume equal split for now.
-            // Or we just add it as an expense paid by me. 
-            // The /api/groups/split endpoint requires: group_id, amount, description, split_method
-
-            response = await fetch(`${API_BASE_URL}/groups/split`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${appState.token}`
-                },
-                body: JSON.stringify({
-                    group_id: appState.currentGroupId,
-                    amount: numericAmount,
-                    description: appState.description.trim() + (appState.category !== 'Uncategorized' ? ` [${appState.category}]` : ''),
-                    split_method: 'equal' // Defaulting to equal split for dashboard quick add
-                })
-            });
-
-        } else {
-            // Standard Private Transaction
-            response = await fetch(`${API_BASE_URL}/transactions`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${appState.token}`
-                },
-                body: JSON.stringify({
-                    amount: numericAmount,
-                    description: appState.description.trim(),
-                    category: appState.category,
-                    type: appState.type,
-                    is_business: appState.isBusiness,
-                    gst_amount: numericGst
-                })
-            });
+            // Use Group Split endpoint
+            url = `${API_BASE_URL}/groups/split`;
+            body = {
+                group_id: appState.currentGroupId,
+                amount: numericAmount,
+                description: appState.description.trim(),
+                category: appState.category,
+                type: appState.type,
+                split_method: 'equal' // Default equal split
+            };
         }
+
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${appState.token}`
+            },
+            body: JSON.stringify(body)
+        });
 
         if (!response.ok) {
             const errorData = await response.json();
@@ -2963,18 +3234,20 @@ const handleAddTransaction = async (e) => {
         appState.amount = ''; appState.description = ''; appState.type = 'expense'; appState.category = 'Uncategorized';
         appState.isBusiness = false; appState.gstAmount = '';
 
-        const successMessage = appState.isShared ? 'Shared expense added!' : 'Transaction recorded successfully!';
-        setAlert(successMessage, 'success');
+        setAlert('Transaction recorded successfully!', 'success');
 
         // Reload data to update budgets and re-render the dashboard
         await initializeListeners();
-        // renderDashboard calling updateUI via initializeListeners is not correct flow usually, 
+        // renderDashboard calling updateUI via initializeListeners is not correct flow usually,
         // usually initializeListeners sets state, then we call updateUI.
         // But handleAddTransaction calls updateUI at the end (finally block).
         // Let's ensure strict re-render.
         if (appState.currentMainView === 'dashboard') {
             renderDashboard();
         }
+
+        // Check pending invite after login
+        checkPendingInvite();
 
     } catch (error) {
         console.error("Error adding transaction:", error);
@@ -3015,7 +3288,8 @@ const handleAddGoal = async (e) => {
             body: JSON.stringify({
                 name: goalName,
                 target_amount: targetAmount,
-                target_date: targetDate
+                target_date: targetDate,
+                group_id: appState.isShared ? appState.currentGroupId : null
             })
         });
 
@@ -3066,7 +3340,8 @@ const handleAddObligation = async (e) => {
             body: JSON.stringify({
                 description: obligationDescription,
                 amount: obligationAmount,
-                due_date: obligationDueDate
+                due_date: obligationDueDate,
+                group_id: appState.isShared ? appState.currentGroupId : null
             })
         });
 
@@ -3116,7 +3391,7 @@ async function handleAddBudget(e) {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${appState.token}`
             },
-            body: JSON.stringify({ category, amount, monthYear })
+            body: JSON.stringify({ category, amount, monthYear, group_id: appState.isShared ? appState.currentGroupId : null })
         });
 
         const res = await response.json();
@@ -3735,7 +4010,7 @@ const renderAdminPanel = async () => {
                      <button onclick="loadAdminDashboard()" class="p-2 text-gray-600 hover:text-indigo-600" title="Refresh"><i class="fas fa-sync-alt"></i></button>
                 </div>
             </div>
-            
+
             <!-- Admin Navigation -->
             <div class="flex space-x-1 bg-gray-100 p-1 rounded-lg overflow-x-auto">
                 <button id="admin-nav-dashboard" onclick="switchAdminTab('dashboard')" class="flex-1 py-2 px-4 text-sm font-medium rounded-md transition admin-nav-btn active bg-white text-indigo-700 shadow-sm">
@@ -3812,7 +4087,7 @@ const renderAdminPanel = async () => {
                 <div class="bg-white rounded-lg shadow p-6 max-w-2xl mx-auto">
                     <h3 class="text-lg font-bold text-gray-800 mb-2">📢 Send Global Broadcast</h3>
                     <p class="text-sm text-gray-500 mb-6">Send an email notification to all users who have alerts enabled.</p>
-                    
+
                     <form onsubmit="handleAdminBroadcast(event)" class="space-y-4">
                         <div>
                             <label class="block text-sm font-medium text-gray-700">Subject</label>
@@ -4139,11 +4414,11 @@ const loadAdminBadges = async () => {
                     </div>
                 </div>
                 <div class="flex flex-col gap-1">
-                    <button onclick="editBadge(${b.id}, '${b.code}', '${b.name}', '${b.icon}', '${b.description.replace(/'/g, "\\'")}', '${b.criteria_type}', ${b.criteria_threshold})" 
+                    <button onclick="editBadge(${b.id}, '${b.code}', '${b.name}', '${b.icon}', '${b.description.replace(/'/g, "\\'")}', '${b.criteria_type}', ${b.criteria_threshold})"
                             class="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 transition">
                         <i class="fas fa-edit"></i> Edit
                     </button>
-                    <button onclick="deleteBadge(${b.id}, '${b.name}')" 
+                    <button onclick="deleteBadge(${b.id}, '${b.name}')"
                             class="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 transition">
                         <i class="fas fa-trash"></i> Delete
                     </button>
@@ -4295,6 +4570,26 @@ window.toggleUserRole = async (userId, makeAdmin) => {
     }
 };
 
+const fetchGroupMembers = async (groupId) => {
+    try {
+        const response = await fetch(`${API_BASE_URL}/groups/${groupId}/balances`, {
+            headers: { 'Authorization': `Bearer ${appState.token}` }
+        });
+        if (response.ok) {
+            const data = await response.json();
+            appState.currentGroupMembers = data.balances || [];
+            // Re-render header if it's already visible
+            const headerContainer = document.getElementById('family-header-container');
+            if (headerContainer) {
+                headerContainer.innerHTML = renderFamilyHeader().replace(/^<div/, '<div'); // hacky update, better to re-render dashboard
+                renderDashboard();
+            }
+        }
+    } catch (e) {
+        console.error("Error fetching group members", e);
+    }
+};
+
 const initializeListeners = async () => {
     if (!appState.token || !appState.userId) return;
 
@@ -4302,9 +4597,19 @@ const initializeListeners = async () => {
 
         // Load transactions (Shared or Private)
         let transactionsUrl = `${API_BASE_URL}/transactions`;
+        let goalsUrl = `${API_BASE_URL}/goals`;
+        let obligationsUrl = `${API_BASE_URL}/obligations`;
+        let budgetsUrl = `${API_BASE_URL}/budgets`;
+
         if (appState.isShared && appState.currentGroupId) {
             transactionsUrl = `${API_BASE_URL}/groups/${appState.currentGroupId}/transactions`;
+            const qs = `?group_id=${appState.currentGroupId}`;
+            goalsUrl += qs;
+            obligationsUrl += qs;
+            budgetsUrl += qs;
             console.log('Loading Shared Ledger from:', transactionsUrl);
+            // Fetch group members as well
+            fetchGroupMembers(appState.currentGroupId);
         }
 
         const transactionsResponse = await fetch(transactionsUrl, {
@@ -4329,7 +4634,7 @@ const initializeListeners = async () => {
         }
 
         // Load goals
-        const goalsResponse = await fetch(`${API_BASE_URL}/goals`, {
+        const goalsResponse = await fetch(goalsUrl, {
             headers: {
                 'Authorization': `Bearer ${appState.token}`
             }
@@ -4347,7 +4652,7 @@ const initializeListeners = async () => {
         }
 
         // Load obligations
-        const obligationsResponse = await fetch(`${API_BASE_URL}/obligations`, {
+        const obligationsResponse = await fetch(obligationsUrl, {
             headers: {
                 'Authorization': `Bearer ${appState.token}`
             }
@@ -4365,7 +4670,7 @@ const initializeListeners = async () => {
         }
 
         // Load budgets
-        const budgetsResponse = await fetch(`${API_BASE_URL}/budgets`, {
+        const budgetsResponse = await fetch(budgetsUrl, {
             headers: {
                 'Authorization': `Bearer ${appState.token}`
             }
@@ -4397,6 +4702,58 @@ const initializeListeners = async () => {
     }
 };
 
+// Check for pending invite link
+const checkPendingInvite = async () => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const joinToken = urlParams.get('join');
+
+    if (joinToken) {
+        sessionStorage.setItem('pendingInvite', joinToken);
+        // Clean URL
+        window.history.replaceState({}, document.title, window.location.pathname);
+    }
+
+    const pendingToken = sessionStorage.getItem('pendingInvite');
+    if (pendingToken && appState.token) {
+        try {
+            const response = await fetch(`${API_BASE_URL}/groups/join`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${appState.token}`
+                },
+                body: JSON.stringify({ token: pendingToken })
+            });
+
+            const data = await response.json();
+            if (response.ok) {
+                setAlert(data.message, 'success');
+                sessionStorage.removeItem('pendingInvite');
+                // Initiate Groups module and switch view
+                await import('./js/groups.js').then(async m => {
+                    m.initGroups({ apiBaseUrl: API_BASE_URL, appState, setAlert });
+                    // Force reload groups
+                    await m.initializeGroupListeners();
+                });
+
+                appState.currentMainView = 'groups';
+                localStorage.setItem('currentMainView', 'groups');
+                updateUI();
+            } else if (response.status === 404) {
+                setAlert('Invite link is invalid or expired.', 'error');
+                sessionStorage.removeItem('pendingInvite');
+            } else if (response.status === 200 && data.message.includes('already')) {
+                setAlert(data.message, 'info');
+                sessionStorage.removeItem('pendingInvite');
+                appState.currentMainView = 'groups';
+                localStorage.setItem('currentMainView', 'groups');
+                updateUI();
+            }
+        } catch (error) {
+            console.error('Error joining group:', error);
+        }
+    }
+};
 
 const initializeAppAndAuth = async () => {
     try {
@@ -4458,6 +4815,9 @@ const initializeAppAndAuth = async () => {
         appState.isLoading = false;
         initializeListeners();
         updateUI();
+
+        // Check for pending invite after initialization
+        checkPendingInvite();
     } catch (e) {
         console.error("App Initialization Error:", e);
         appState.isLoading = false;
@@ -4589,11 +4949,11 @@ window.onload = () => {
             let response;
 
             if (appState.isShared && appState.currentGroupId) {
-                // In shared mode, we need to delete group expenses
-                // Since there's no bulk delete for group expenses, we need to add that endpoint
-                // For now, inform user this feature is not available for shared ledger
-                setAlert('Clearing shared expenses is not yet supported. Please delete individual expenses.', 'error');
-                return;
+                // Shared mode - clear group expenses
+                response = await fetch(`${API_BASE_URL}/groups/${appState.currentGroupId}/expenses`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${appState.token}` }
+                });
             } else {
                 // Private mode - clear personal transactions
                 response = await fetch(`${API_BASE_URL}/transactions`, {

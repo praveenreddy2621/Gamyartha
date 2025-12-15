@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS transactions (
 CREATE TABLE IF NOT EXISTS goals (
     id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL,
+    group_id INT DEFAULT NULL,
     name VARCHAR(255) NOT NULL,
     target_amount DECIMAL(15,2) NOT NULL,
     saved_amount DECIMAL(15,2) DEFAULT 0,
@@ -60,6 +61,7 @@ CREATE TABLE IF NOT EXISTS goals (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (group_id) REFERENCES expense_groups(id) ON DELETE CASCADE,
     INDEX idx_user_target (user_id, target_date)
 );
 
@@ -67,6 +69,7 @@ CREATE TABLE IF NOT EXISTS goals (
 CREATE TABLE IF NOT EXISTS obligations (
     id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL,
+    group_id INT DEFAULT NULL,
     description TEXT NOT NULL,
     amount DECIMAL(15,2) NOT NULL,
     due_date DATE NOT NULL,
@@ -74,6 +77,7 @@ CREATE TABLE IF NOT EXISTS obligations (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (group_id) REFERENCES expense_groups(id) ON DELETE CASCADE,
     INDEX idx_user_due (user_id, due_date)
 );
 
@@ -122,6 +126,7 @@ CREATE TABLE IF NOT EXISTS chat_history (
 CREATE TABLE IF NOT EXISTS budgets (
     id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL,
+    group_id INT DEFAULT NULL,
     category VARCHAR(100) NOT NULL,
     amount DECIMAL(10,2) NOT NULL,
     month_year VARCHAR(7) NOT NULL,
@@ -129,7 +134,8 @@ CREATE TABLE IF NOT EXISTS budgets (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    UNIQUE KEY unique_user_category_month (user_id, category, month_year),
+    FOREIGN KEY (group_id) REFERENCES expense_groups(id) ON DELETE CASCADE,
+    UNIQUE KEY unique_budget_entry (user_id, category, month_year, group_id),
     INDEX idx_user_month (user_id, month_year)
 );
 
@@ -227,7 +233,8 @@ CREATE TABLE IF NOT EXISTS group_expenses (
     paid_by_user_id INT NOT NULL,
     amount DECIMAL(10, 2) NOT NULL,
     description TEXT,
-    category VARCHAR(50), -- For expense categorization
+    category VARCHAR(100) DEFAULT 'Uncategorized', -- For expense categorization
+    type ENUM('expense', 'income', 'settlement') DEFAULT 'expense',
     split_method ENUM('equal', 'percentage', 'exact', 'settlement') DEFAULT 'equal',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (group_id) REFERENCES expense_groups(id) ON DELETE CASCADE,

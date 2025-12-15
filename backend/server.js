@@ -67,7 +67,7 @@ app.use('/api/', apiLimiter);
 
 // CORS Configuration
 const corsOptions = {
-    origin: process.env.NODE_ENV === 'production' ? process.env.FRONTEND_URL : ['http://localhost:3000', 'http://localhost:3001', 'http://127.0.0.1:5500'], // Allow local dev
+    origin: process.env.NODE_ENV === 'production' ? process.env.FRONTEND_URL : ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:8000', 'http://127.0.0.1:5500'], // Allow local dev
     optionsSuccessStatus: 200
 };
 app.use(cors(corsOptions));
@@ -281,10 +281,36 @@ async function initializeDatabase() {
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 group_name VARCHAR(255) NOT NULL,
                 created_by_user_id INT NOT NULL,
+                group_type ENUM('general', 'family') DEFAULT 'general',
+                invite_token VARCHAR(64) UNIQUE NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (created_by_user_id) REFERENCES users(id) ON DELETE CASCADE
             )
         `);
+
+        // Migration: Ensure group_type column exists
+        try {
+            await dbConnection.execute(`
+                ALTER TABLE expense_groups
+                ADD COLUMN group_type ENUM('general', 'family') DEFAULT 'general'
+            `);
+        } catch (error) {
+            if (error.code !== 'ER_DUP_FIELDNAME') {
+                console.error('Migration Error (group_type):', error.message);
+            }
+        }
+
+        // Migration: Ensure invite_token column exists
+        try {
+            await dbConnection.execute(`
+                ALTER TABLE expense_groups
+                ADD COLUMN invite_token VARCHAR(64) UNIQUE NULL
+            `);
+        } catch (error) {
+            if (error.code !== 'ER_DUP_FIELDNAME') {
+                console.error('Migration Error (invite_token):', error.message);
+            }
+        }
 
         // Group members table
         await dbConnection.execute(`
@@ -1160,14 +1186,35 @@ app.put('/api/goals/:id', authenticateToken, async (req, res) => {
     }
 });
 
-// Get obligations
+// Get obligations (Shared or Private)
 app.get('/api/obligations', authenticateToken, async (req, res) => {
     try {
+        const { group_id } = req.query;
         const connection = await pool.getConnection();
-        const [obligations] = await connection.execute(
-            'SELECT * FROM obligations WHERE user_id = ? ORDER BY due_date ASC',
-            [req.user.id]
-        );
+        let obligations;
+
+        if (group_id) {
+            const [membership] = await connection.execute(
+                'SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ?',
+                [group_id, req.user.id]
+            );
+
+            if (membership.length === 0) {
+                connection.release();
+                return res.status(403).json({ error: 'Not a member of this group' });
+            }
+
+            [obligations] = await connection.execute(
+                'SELECT * FROM obligations WHERE group_id = ? ORDER BY due_date ASC',
+                [group_id]
+            );
+        } else {
+            [obligations] = await connection.execute(
+                'SELECT * FROM obligations WHERE user_id = ? AND group_id IS NULL ORDER BY due_date ASC',
+                [req.user.id]
+            );
+        }
+
         connection.release();
 
         res.json({ obligations });
@@ -1181,19 +1228,33 @@ app.get('/api/obligations', authenticateToken, async (req, res) => {
 // Add obligation
 app.post('/api/obligations', authenticateToken, async (req, res) => {
     try {
-        const { description, amount, due_date } = req.body;
+        const { description, amount, due_date, group_id } = req.body;
 
         if (!description || !amount || !due_date) {
             return res.status(400).json({ error: 'Required fields missing' });
         }
 
         const connection = await pool.getConnection();
+
+        if (group_id) {
+            const [membership] = await connection.execute(
+                'SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ?',
+                [group_id, req.user.id]
+            );
+
+            if (membership.length === 0) {
+                connection.release();
+                return res.status(403).json({ error: 'Not a member of this group' });
+            }
+        }
+
         const [result] = await connection.execute(
-            'INSERT INTO obligations (user_id, description, amount, due_date) VALUES (?, ?, ?, ?)',
-            [req.user.id, description, amount, due_date]
+            'INSERT INTO obligations (user_id, group_id, description, amount, due_date) VALUES (?, ?, ?, ?, ?)',
+            [req.user.id, group_id || null, description, amount, due_date]
         );
 
-        // Fetch user details for email notification
+        // Fetch user details for email notification (if private or if needed)
+        // For shared obligations, ideally notify all members, but keeping it simple for now (notify creator)
         const [userRows] = await connection.execute(
             'SELECT email, full_name, email_alerts_enabled FROM users WHERE id = ?',
             [req.user.id]
@@ -1253,16 +1314,39 @@ app.put('/api/obligations/:id/pay', authenticateToken, async (req, res) => {
 // Delete obligation
 app.delete('/api/obligations/:id', authenticateToken, async (req, res) => {
     try {
+        const obligationId = req.params.id;
         const connection = await pool.getConnection();
-        const [result] = await connection.execute(
-            'DELETE FROM obligations WHERE id = ? AND user_id = ?',
-            [req.params.id, req.user.id]
-        );
-        connection.release();
 
-        if (result.affectedRows === 0) {
+        // Permission check
+        const [obligation] = await connection.execute('SELECT user_id, group_id FROM obligations WHERE id = ?', [obligationId]);
+
+        if (obligation.length === 0) {
+            connection.release();
             return res.status(404).json({ error: 'Obligation not found' });
         }
+
+        if (obligation[0].group_id) {
+            const [membership] = await connection.execute(
+                'SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ?',
+                [obligation[0].group_id, req.user.id]
+            );
+            if (membership.length === 0) {
+                connection.release();
+                // Optionally allow admin to delete? No, strictly enforce group membership.
+                return res.status(403).json({ error: 'Not authorized' });
+            }
+        } else {
+            if (obligation[0].user_id !== req.user.id) {
+                connection.release();
+                return res.status(403).json({ error: 'Not authorized' });
+            }
+        }
+
+        const [result] = await connection.execute(
+            'DELETE FROM obligations WHERE id = ?',
+            [obligationId]
+        );
+        connection.release();
 
         res.json({ message: 'Obligation deleted successfully' });
     } catch (error) {

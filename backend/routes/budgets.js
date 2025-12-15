@@ -6,7 +6,7 @@ const BudgetService = require('../services/BudgetService');
 // Create or update a budget
 router.post('/', auth, async (req, res) => {
     try {
-        const { category, amount, monthYear } = req.body;
+        const { category, amount, monthYear, group_id } = req.body;
 
         if (!category || !amount || !monthYear) {
             return res.status(400).json({
@@ -21,13 +21,32 @@ router.post('/', auth, async (req, res) => {
             });
         }
 
+        const connection = await req.pool.getConnection();
+
+        // If creating a shared budget, check membership
+        if (group_id) {
+            const [membership] = await connection.execute(
+                'SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ?',
+                [group_id, req.user.id]
+            );
+            connection.release();
+
+            if (membership.length === 0) {
+                return res.status(403).json({ error: 'Not a member of this group' });
+            }
+        } else {
+            connection.release();
+        }
+
+
         const budgetService = new BudgetService(req.pool);
         const budgetId = await budgetService.createOrUpdateBudget(
             req.user.id,
             category,
             amount,
             monthYear,
-            req.user.currency || 'INR' // Automatically use user's currency
+            req.user.currency || 'INR', // Automatically use user's currency
+            group_id || null
         );
 
         res.json({
@@ -44,10 +63,22 @@ router.post('/', auth, async (req, res) => {
 // Get budgets for current month
 router.get('/', auth, async (req, res) => {
     try {
+        const { group_id } = req.query;
+
+        if (group_id) {
+            const connection = await req.pool.getConnection();
+            const [membership] = await connection.execute(
+                'SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ?',
+                [group_id, req.user.id]
+            );
+            connection.release();
+            if (membership.length === 0) return res.status(403).json({ error: 'Not a member' });
+        }
+
         const budgetService = new BudgetService(req.pool);
         const currentMonth = new Date().toISOString().slice(0, 7); // YYYY-MM
 
-        const budgets = await budgetService.getBudgets(req.user.id, currentMonth);
+        const budgets = await budgetService.getBudgets(req.user.id, currentMonth, group_id);
         res.json({ budgets });
 
     } catch (error) {
@@ -60,6 +91,7 @@ router.get('/', auth, async (req, res) => {
 router.get('/:month', auth, async (req, res) => {
     try {
         const { month } = req.params;
+        const { group_id } = req.query;
 
         // Validate month format (YYYY-MM)
         if (!/^\d{4}-\d{2}$/.test(month)) {
@@ -68,8 +100,18 @@ router.get('/:month', auth, async (req, res) => {
             });
         }
 
+        if (group_id) {
+            const connection = await req.pool.getConnection();
+            const [membership] = await connection.execute(
+                'SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ?',
+                [group_id, req.user.id]
+            );
+            connection.release();
+            if (membership.length === 0) return res.status(403).json({ error: 'Not a member' });
+        }
+
         const budgetService = new BudgetService(req.pool);
-        const budgets = await budgetService.getBudgets(req.user.id, month);
+        const budgets = await budgetService.getBudgets(req.user.id, month, group_id);
         res.json({ budgets });
 
     } catch (error) {
