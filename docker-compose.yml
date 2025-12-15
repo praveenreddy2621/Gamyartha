@@ -1,5 +1,4 @@
 
-
 services:
   backend:
     build: ./backend
@@ -15,8 +14,8 @@ services:
       - DB_PASSWORD=mysecretpassword
       - DB_NAME=gamyartha
       - REDIS_URL=redis://redis:6379
-      - FRONTEND_URL=http://13.233.139.94
-      - APP_URL=http://13.233.139.94
+      - FRONTEND_URL=https://gamyartha.duckdns.org
+      - APP_URL=https://gamyartha.duckdns.org
       - NODE_ENV=production
     depends_on:
       - mysql
@@ -25,10 +24,16 @@ services:
       - app-network
 
   frontend:
-    build: ./frontend
+    image: caddy:alpine
     restart: always
     ports:
       - "80:80"
+      - "443:443"
+    volumes:
+      - ./frontend:/srv
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
     depends_on:
       - backend
     networks:
@@ -64,3 +69,5 @@ networks:
 
 volumes:
   mysql_data:
+  caddy_data:
+  caddy_config:

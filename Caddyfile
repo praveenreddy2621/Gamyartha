@@ -1,0 +1,19 @@
+gamyartha.duckdns.org {
+    # Serve static frontend files
+    root * /srv
+    encode gzip
+    file_server
+
+    # Reverse proxy API requests to backend
+    handle /api/* {
+        reverse_proxy backend:3000
+    }
+
+    # Handle single page app routing (redirect unknown paths to index.html)
+    handle_errors {
+        rewrite * /index.html
+        file_server
+    }
+    
+    try_files {path} /index.html
+}
