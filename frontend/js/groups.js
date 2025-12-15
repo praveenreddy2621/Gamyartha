@@ -598,12 +598,32 @@ window.showCreateGroupModal = showCreateGroupModal; // Explicitly attach to wind
 
 const handleCreateGroupSubmit = async (e) => {
     e.preventDefault();
+    const submitBtn = e.target.querySelector('button[type="submit"]');
+    const originalBtnText = submitBtn.innerText;
+
+    // UI Loading State
+    submitBtn.disabled = true;
+    submitBtn.innerText = 'Creating...';
+    submitBtn.classList.add('opacity-75', 'cursor-not-allowed');
+
     const name = document.getElementById('new-group-name').value.trim();
     const emailsRaw = document.getElementById('new-group-members').value;
     const emails = emailsRaw.split(',').map(e => e.trim()).filter(e => e);
 
-    if (!name) return alert('Name required');
-    if (emails.length === 0) return alert('At least one member required');
+    if (!name) {
+        alert('Name required');
+        submitBtn.disabled = false;
+        submitBtn.innerText = originalBtnText;
+        submitBtn.classList.remove('opacity-75', 'cursor-not-allowed');
+        return;
+    }
+    if (emails.length === 0) {
+        alert('At least one member required');
+        submitBtn.disabled = false;
+        submitBtn.innerText = originalBtnText;
+        submitBtn.classList.remove('opacity-75', 'cursor-not-allowed');
+        return;
+    }
 
     try {
         const response = await fetch(`${API_BASE_URL}/groups/create`, {
@@ -616,18 +636,25 @@ const handleCreateGroupSubmit = async (e) => {
             setAlert('Group created!', 'success');
             closeModal();
             await initializeGroupListeners(); // Refresh list
+
             // Just created, select it?
-            // Need the ID from response, assuming backend returns it
             const data = await response.json();
             if (data.group_id) selectGroup(data.group_id);
             else renderGroupsView(document.getElementById('profile-content'));
         } else {
             const err = await response.text();
-            alert('Failed to create group: ' + err);
+            alert('Failed to create group: ' + (JSON.parse(err).message || err));
         }
     } catch (error) {
         console.error(error);
         alert('Networking error');
+    } finally {
+        // Restore button state if modal is still open (on error)
+        if (document.body.contains(submitBtn)) {
+            submitBtn.disabled = false;
+            submitBtn.innerText = originalBtnText;
+            submitBtn.classList.remove('opacity-75', 'cursor-not-allowed');
+        }
     }
 };
 

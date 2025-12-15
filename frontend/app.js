@@ -733,59 +733,6 @@ const handleChangePassword = async (e) => {
     }
 };
 
-const loadProfileTabContent = (section) => {
-    // Update active tab style
-    document.querySelectorAll('.profile-tab').forEach(tab => tab.classList.remove('active', 'bg-white', 'text-gray-900', 'shadow-sm'));
-    document.querySelectorAll('.profile-tab').forEach(tab => {
-        tab.classList.add('bg-gray-100', 'text-gray-600');
-    });
-    const activeTab = document.getElementById(`profile-${section}-tab`);
-    if (activeTab) {
-        activeTab.classList.add('active', 'bg-white', 'text-gray-900', 'shadow-sm');
-        activeTab.classList.remove('bg-gray-100', 'text-gray-600');
-    }
-
-    const wrapper = document.getElementById('profile-main-wrapper');
-    const content = document.getElementById('profile-content');
-    const header = document.getElementById('profile-header-container');
-
-    // Ensure consistent styling across all tabs (Reverted "Full View" for Groups)
-    if (wrapper) {
-        wrapper.classList.add('p-4', 'space-y-6', 'max-w-4xl', 'mx-auto');
-        wrapper.classList.remove('flex', 'flex-col', 'h-full', 'w-full', 'max-w-full');
-    }
-    if (content) {
-        content.classList.add('min-h-[600px]');
-        content.classList.remove('flex-1', 'h-full', 'w-full');
-        content.style.padding = '';
-    }
-
-    // Load content
-    if (section === 'groups') {
-        import('./js/groups.js').then(async groupsModule => {
-            groupsModule.initGroups({
-                apiBaseUrl: API_BASE_URL,
-                appState: appState,
-                setAlert: setAlert
-            });
-            await groupsModule.initializeGroupListeners();
-            groupsModule.renderGroupsView(document.getElementById('profile-content'));
-        });
-    } else if (section === 'badges') {
-        import('./js/gamification.js').then(module => module.renderBadgesView(document.getElementById('profile-content')));
-    } else if (section === 'recurring') {
-        import('./js/recurring.js').then(module => module.renderRecurringView(document.getElementById('profile-content')));
-    } else if (section === 'timetravel') {
-        import('./js/timetravel.js').then(module => module.renderTimeTravelView(document.getElementById('profile-content')));
-    } else if (section === 'challenges') {
-        import('./js/challenges.js').then(module => {
-            module.initChallenges({ apiBaseUrl: API_BASE_URL, appState, setAlert });
-            module.renderChallengesView(document.getElementById('profile-content'));
-        });
-    } else {
-        renderUserProfileDetails(document.getElementById('profile-content'));
-    }
-};
 
 const fetchUserProfile = async () => {
     const response = await fetch(`${API_BASE_URL}/user/profile`, {
@@ -826,6 +773,74 @@ const handleCurrencyChange = async (e) => {
         updateUI(); // Re-render the entire UI with the new currency
     } catch (error) {
         setAlert('Failed to update currency preference.', 'error');
+    }
+};
+
+const loadProfileTabContent = async (tabName) => {
+    const container = document.getElementById('profile-content');
+    if (!container) return;
+
+    // Update Tab Styles
+    document.querySelectorAll('.profile-tab').forEach(btn => {
+        btn.classList.remove('bg-white', 'text-gray-900', 'shadow-sm');
+        btn.classList.add('bg-gray-100', 'text-gray-600', 'hover:bg-white');
+    });
+    const activeBtn = document.getElementById(`profile-${tabName}-tab`);
+    if (activeBtn) {
+        activeBtn.classList.remove('bg-gray-100', 'text-gray-600', 'hover:bg-white');
+        activeBtn.classList.add('bg-white', 'text-gray-900', 'shadow-sm');
+    }
+
+    container.innerHTML = '<div class="flex justify-center p-8"><div class="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div></div>';
+
+    switch (tabName) {
+        case 'details':
+            renderUserProfileDetails(container);
+            break;
+        case 'groups':
+            import('./js/groups.js').then(module => {
+                module.initGroups({ apiBaseUrl: API_BASE_URL, appState, setAlert });
+                module.renderGroupsView(container);
+            }).catch(e => {
+                console.error(e);
+                container.innerHTML = '<div class="text-red-500 text-center">Failed to load groups.</div>';
+            });
+            break;
+        case 'badges':
+            import('./js/gamification.js').then(module => {
+                module.renderBadgesView(container);
+            }).catch(e => {
+                console.error(e);
+                container.innerHTML = '<div class="text-red-500 text-center">Failed to load badges.</div>';
+            });
+            break;
+        case 'challenges':
+            import('./js/challenges.js').then(module => {
+                module.initChallenges({ apiBaseUrl: API_BASE_URL, appState, setAlert });
+                module.renderChallengesView(container);
+            }).catch(e => {
+                console.error(e);
+                container.innerHTML = '<div class="text-red-500 text-center">Failed to load challenges.</div>';
+            });
+            break;
+        case 'recurring':
+            import('./js/recurring.js').then(module => {
+                module.renderRecurringView(container, appState, API_BASE_URL);
+            }).catch(e => {
+                console.error(e);
+                container.innerHTML = '<div class="text-red-500 text-center">Failed to load subscriptions.</div>';
+            });
+            break;
+        case 'timetravel':
+            import('./js/timetravel.js').then(module => {
+                module.renderTimeTravelView(container, appState);
+            }).catch(e => {
+                console.error(e);
+                container.innerHTML = '<div class="text-red-500 text-center">Failed to load time travel.</div>';
+            });
+            break;
+        default:
+            renderUserProfileDetails(container);
     }
 };
 

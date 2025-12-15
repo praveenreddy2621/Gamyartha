@@ -14,7 +14,7 @@ const path = require('path');
 const fetch = require('node-fetch'); // Add this line to import node-fetch
 const helmet = require('helmet'); // Security headers
 const rateLimit = require('express-rate-limit'); // Rate limiting
-const { initRedis } = require('./utils/redisClient');
+const { initRedis, getOrSet, invalidate } = require('./utils/redisClient');
 require('dotenv').config();
 
 const app = express();
@@ -935,26 +935,31 @@ app.get('/api/transactions', authenticateToken, async (req, res) => {
         const offset = (page - 1) * limit;
         const { type, category } = req.query;
 
-        const connection = await pool.getConnection();
 
-        let query = 'SELECT * FROM transactions WHERE user_id = ?';
-        let params = [req.user.id];
+        const cacheKey = `transactions:${req.user.id}:${JSON.stringify(req.query)}`;
+        const transactions = await getOrSet(cacheKey, 60, async () => {
+            const connection = await pool.getConnection();
 
-        if (type && ['income', 'expense'].includes(type)) {
-            query += ' AND type = ?';
-            params.push(type);
-        }
+            let query = 'SELECT * FROM transactions WHERE user_id = ?';
+            let params = [req.user.id];
 
-        if (category) {
-            query += ' AND category = ?';
-            params.push(category);
-        }
+            if (type && ['income', 'expense'].includes(type)) {
+                query += ' AND type = ?';
+                params.push(type);
+            }
 
-        // Use template literals for LIMIT and OFFSET instead of placeholders
-        query += ` ORDER BY transaction_date DESC LIMIT ${parseInt(limit)} OFFSET ${parseInt(offset)}`;
+            if (category) {
+                query += ' AND category = ?';
+                params.push(category);
+            }
 
-        const [transactions] = await connection.execute(query, params);
-        connection.release();
+            // Use template literals for LIMIT and OFFSET instead of placeholders
+            query += ` ORDER BY transaction_date DESC LIMIT ${parseInt(limit)} OFFSET ${parseInt(offset)}`;
+
+            const [rows] = await connection.execute(query, params);
+            connection.release();
+            return rows;
+        });
 
         res.json({ transactions });
 
@@ -1077,18 +1082,98 @@ app.delete('/api/transactions', authenticateToken, async (req, res) => {
 // Get goals
 app.get('/api/goals', authenticateToken, async (req, res) => {
     try {
-        const connection = await pool.getConnection();
-        const [goals] = await connection.execute(
-            'SELECT * FROM goals WHERE user_id = ? ORDER BY target_date ASC',
-            [req.user.id]
-        );
-        connection.release();
+        const cacheKey = `goals:${req.user.id}`;
+        const goals = await getOrSet(cacheKey, 300, async () => {
+            const connection = await pool.getConnection();
+            const [rows] = await connection.execute(
+                'SELECT * FROM goals WHERE user_id = ? ORDER BY target_date ASC',
+                [req.user.id]
+            );
+            connection.release();
+            return rows;
+        });
 
         res.json({ goals });
 
     } catch (error) {
         console.error('Get goals error:', error);
         res.status(500).json({ error: 'Failed to get goals' });
+    }
+});
+
+// Get budgets
+app.get('/api/budgets', authenticateToken, async (req, res) => {
+    try {
+        const cacheKey = `budgets:${req.user.id}`;
+        const budgets = await getOrSet(cacheKey, 300, async () => {
+            const connection = await pool.getConnection();
+            const [rows] = await connection.execute(
+                'SELECT * FROM budgets WHERE user_id = ?',
+                [req.user.id]
+            );
+            connection.release();
+            return rows;
+        });
+
+        res.json({ budgets });
+    } catch (error) {
+        console.error('Get budgets error:', error);
+        res.status(500).json({ error: 'Failed to get budgets' });
+    }
+});
+
+// Add budget
+app.post('/api/budgets', authenticateToken, async (req, res) => {
+    try {
+        const { category, limit_amount, period } = req.body;
+
+        if (!category || !limit_amount || !period) {
+            return res.status(400).json({ error: 'Required fields missing' });
+        }
+
+        const connection = await pool.getConnection();
+        const [result] = await connection.execute(
+            'INSERT INTO budgets (user_id, category, limit_amount, period, currency) VALUES (?, ?, ?, ?, ?)',
+            [req.user.id, category, limit_amount, period, req.user.currency || 'INR']
+        );
+        connection.release();
+
+        await invalidate(`budgets:${req.user.id}`);
+
+        // Check for first budget badge
+        gamificationService.checkAndAwardBadges(req.user.id, 'budget_count', 1).catch(console.error);
+
+        res.status(201).json({
+            message: 'Budget added successfully',
+            budgetId: result.insertId
+        });
+
+    } catch (error) {
+        console.error('Add budget error:', error);
+        res.status(500).json({ error: 'Failed to add budget' });
+    }
+});
+
+// Delete budget
+app.delete('/api/budgets/:id', authenticateToken, async (req, res) => {
+    try {
+        const connection = await pool.getConnection();
+        const [result] = await connection.execute(
+            'DELETE FROM budgets WHERE id = ? AND user_id = ?',
+            [req.params.id, req.user.id]
+        );
+        connection.release();
+
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ error: 'Budget not found' });
+        }
+
+        await invalidate(`budgets:${req.user.id}`);
+
+        res.json({ message: 'Budget deleted successfully' });
+    } catch (error) {
+        console.error('Delete budget error:', error);
+        res.status(500).json({ error: 'Failed to delete budget' });
     }
 });
 
@@ -1107,6 +1192,8 @@ app.post('/api/goals', authenticateToken, async (req, res) => {
             [req.user.id, name, target_amount, target_date]
         );
         connection.release();
+
+        await invalidate(`goals:${req.user.id}`);
 
         res.status(201).json({
             message: 'Goal added successfully',
@@ -1131,6 +1218,8 @@ app.put('/api/goals/:id/progress', authenticateToken, async (req, res) => {
             [saved_amount, goalId, req.user.id]
         );
         connection.release();
+
+        await invalidate(`goals:${req.user.id}`);
 
         res.json({ message: 'Goal progress updated' });
 
@@ -1161,6 +1250,8 @@ app.delete('/api/goals/:id', authenticateToken, async (req, res) => {
             return res.status(404).json({ error: 'Goal not found' });
         }
 
+        await invalidate(`goals:${req.user.id}`);
+
         res.json({ message: 'Goal deleted successfully' });
     } catch (error) {
         console.error('Delete goal error:', error);
@@ -1178,6 +1269,8 @@ app.put('/api/goals/:id', authenticateToken, async (req, res) => {
             [name, target_amount, target_date, req.params.id, req.user.id]
         );
         connection.release();
+
+        await invalidate(`goals:${req.user.id}`);
 
         res.json({ message: 'Goal updated successfully' });
     } catch (error) {
