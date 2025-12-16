@@ -233,6 +233,23 @@ async function initializeDatabase() {
             )
         `);
 
+        // Assets table (Net Worth)
+        await dbConnection.execute(`
+            CREATE TABLE IF NOT EXISTS assets (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id INT NOT NULL,
+                name VARCHAR(255) NOT NULL,
+                type VARCHAR(50) NOT NULL,
+                amount DECIMAL(15,2) NOT NULL,
+                description TEXT,
+                currency VARCHAR(3) DEFAULT 'INR',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                INDEX idx_user_type (user_id, type)
+            )
+        `);
+
         // Password reset codes table
         await dbConnection.execute(`
             CREATE TABLE IF NOT EXISTS password_reset_codes (
