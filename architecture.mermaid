@@ -1,0 +1,29 @@
+
+graph TD
+    User((User))
+    subgraph AWS_EC2 [AWS EC2 Cloud Server]
+        subgraph Docker_Network [Docker Compose Network]
+            Caddy[Caddy Web Server<br/>(Reverse Proxy & SSL)]
+            Backend[Node.js Backend<br/>(Express API)]
+            DB[(MySQL Database)]
+            Redis[(Redis Cache)]
+        end
+    end
+    
+    Gemini[Google Gemini AI API]
+    Email[SMTP Email Service]
+
+    User -- HTTPS/443 --> Caddy
+    Caddy -- Serve Static Files --> Frontend_Files[Frontend Assets<br/>(HTML/JS/CSS)]
+    Caddy -- Proxy /api/* --> Backend
+    
+    Backend -- Query/Write --> DB
+    Backend -- Cache Data --> Redis
+    Backend -- Ask Question --> Gemini
+    Backend -- Send Alerts --> Email
+    
+    style Caddy fill:#ff9900,stroke:#333,stroke-width:2px
+    style Backend fill:#66ccff,stroke:#333,stroke-width:2px
+    style DB fill:#99ff99,stroke:#333,stroke-width:2px
+    style Gemini fill:#cc99ff,stroke:#333,stroke-width:2px
+

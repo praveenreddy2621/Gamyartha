@@ -27,7 +27,7 @@ By default, only port 22 (SSH) is open. We need port **80** for the web app.
 3.  Click on the **Default Security List**.
 4.  Click **Add Ingress Rules**:
     - **Source CIDR**: `0.0.0.0/0` (Allows access from anywhere)
-    - **Destination Port Range**: `80`
+    - **Destination Port Range**: `80,443`
     - **Description**: Allow HTTP
 5.  Click **Add Ingress Rules**.
 

@@ -568,6 +568,10 @@ const renderDashboard = () => {
     descInput.addEventListener('input', (e) => {
         appState.description = e.target.value;
         const aiBtn = document.getElementById('ai-analyze-btn');
+
+        // Dynamically toggle disabled state
+        aiBtn.disabled = appState.isAnalyzing || !appState.description.trim();
+
         if (appState.description.length > 5 && !appState.amount) {
             aiBtn.classList.add('animate-pulse');
         } else {
@@ -645,7 +649,7 @@ window.addMoneyToGoal = async (goalId) => {
     const newSavedAmount = currentSaved + amountToAdd;
 
     try {
-        const response = await fetch(`${API_BASE_URL}/goals/${goalId}/progress`, {
+        const response = await secureFetch(`${API_BASE_URL}/goals/${goalId}/progress`, {
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json',
@@ -687,7 +691,7 @@ window.editBudget = async (id) => {
     const monthYear = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
     try {
-        await fetch(`${API_BASE_URL}/budgets`, {
+        await secureFetch(`${API_BASE_URL}/budgets`, {
             method: 'POST', // The backend uses POST for create/update (upsert)
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${appState.token}` },
             body: JSON.stringify({ category: budget.category, amount: parseFloat(newAmount), monthYear })
@@ -705,7 +709,7 @@ window.deleteBudget = async (id) => {
     if (!confirm("Are you sure you want to delete this budget?")) return;
 
     try {
-        await fetch(`${API_BASE_URL}/budgets/${id}`, {
+        await secureFetch(`${API_BASE_URL}/budgets/${id}`, {
             method: 'DELETE',
             headers: { 'Authorization': `Bearer ${appState.token}` }
         });
@@ -735,7 +739,7 @@ const handleChangePassword = async (e) => {
 
 
 const fetchUserProfile = async () => {
-    const response = await fetch(`${API_BASE_URL}/user/profile`, {
+    const response = await secureFetch(`${API_BASE_URL}/user/profile`, {
         headers: { 'Authorization': `Bearer ${appState.token}` }
     });
     const data = await response.json();
@@ -757,7 +761,7 @@ const handleCurrencyChange = async (e) => {
     appState.activeCurrency = newCurrency;
 
     try {
-        await fetch(`${API_BASE_URL}/user/profile`, {
+        await secureFetch(`${API_BASE_URL}/user/profile`, {
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json',
@@ -1028,7 +1032,7 @@ const handleDeleteAccount = async () => {
     // In a real app, you might match this against appState.userEmail
 
     try {
-        const response = await fetch(`${API_BASE_URL}/user/profile`, {
+        const response = await secureFetch(`${API_BASE_URL}/user/profile`, {
             method: 'DELETE',
             headers: {
                 'Content-Type': 'application/json',
@@ -1222,7 +1226,7 @@ const renderFamilyHeader = () => {
 // --- INVITE FLOW LOGIC ---
 const triggerInviteFlow = async (groupId) => {
     try {
-        const response = await fetch(`${API_BASE_URL}/groups/${groupId}/invite`, {
+        const response = await secureFetch(`${API_BASE_URL}/groups/${groupId}/invite`, {
             headers: { 'Authorization': `Bearer ${appState.token}` }
         });
 
@@ -2242,7 +2246,7 @@ const applyBudget = async (category, amount, buttonElement) => {
     try {
         const now = new Date();
         const monthYear = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-        await fetch(`${API_BASE_URL}/budgets`, {
+        await secureFetch(`${API_BASE_URL}/budgets`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${appState.token}` },
             body: JSON.stringify({ category, amount, monthYear })
@@ -2290,7 +2294,7 @@ const handleChatQuery = async (e, fixedMessage = null) => {
 
     // 3. Call our new backend endpoint
     try {
-        const response = await fetch(`${API_BASE_URL}/chat/query`, {
+        const response = await secureFetch(`${API_BASE_URL}/chat/query`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -3230,7 +3234,7 @@ const handleAddTransaction = async (e) => {
             };
         }
 
-        const response = await fetch(url, {
+        const response = await secureFetch(url, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -3294,7 +3298,7 @@ const handleAddGoal = async (e) => {
             ? `${API_BASE_URL}/goals/${editingGoalId}`
             : `${API_BASE_URL}/goals`;
 
-        const response = await fetch(url, {
+        const response = await secureFetch(url, {
             method: isEditing ? 'PUT' : 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -3346,7 +3350,7 @@ const handleAddObligation = async (e) => {
     }
 
     try {
-        const response = await fetch(`${API_BASE_URL}/obligations`, {
+        const response = await secureFetch(`${API_BASE_URL}/obligations`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -3400,7 +3404,7 @@ async function handleAddBudget(e) {
         const now = new Date();
         const monthYear = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
-        const response = await fetch(`${API_BASE_URL}/budgets`, {
+        const response = await secureFetch(`${API_BASE_URL}/budgets`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -3433,7 +3437,7 @@ const markObligationPaid = async (obligation) => {
 
     try {
         // Mark obligation as paid via API
-        const response = await fetch(`${API_BASE_URL}/obligations/${obligation.id}/pay`, {
+        const response = await secureFetch(`${API_BASE_URL}/obligations/${obligation.id}/pay`, {
             method: 'PUT',
             headers: {
                 'Authorization': `Bearer ${appState.token}`
@@ -3446,7 +3450,7 @@ const markObligationPaid = async (obligation) => {
         }
 
         // Record the payment as a new transaction (expense)
-        const transactionResponse = await fetch(`${API_BASE_URL}/transactions`, {
+        const transactionResponse = await secureFetch(`${API_BASE_URL}/transactions`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -3871,13 +3875,23 @@ const editTransaction = (transactionId, userId) => {
     alert(`Edit transaction: ${transactionId} for user: ${userId}`);
 };
 
-const deleteTransaction = async (transactionId, userId) => {
+const deleteTransaction = async (transactionId) => {
     if (!confirm('Are you sure you want to delete this transaction?')) return;
 
     try {
-        await deleteDoc(doc(appState.db, `users/${userId}/transactions`, transactionId));
+        await secureFetch(`${API_BASE_URL}/transactions/${transactionId}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${appState.token}` }
+        });
         setAlert('Transaction deleted successfully', 'success');
-        loadAdminContent('transactions'); // Refresh
+
+        // Refresh based on view
+        if (appState.currentMainView === 'admin' && isAdmin()) {
+            loadAdminContent('transactions');
+        } else {
+            await initializeListeners();
+            renderDashboard();
+        }
     } catch (error) {
         console.error('Error deleting transaction:', error);
         setAlert('Failed to delete transaction', 'error');
@@ -3889,13 +3903,22 @@ const editGoal = (goalId, userId) => {
     alert(`Edit goal: ${goalId} for user: ${userId}`);
 };
 
-const deleteGoal = async (goalId, userId) => {
+const deleteGoal = async (goalId) => {
     if (!confirm('Are you sure you want to delete this goal?')) return;
 
     try {
-        await deleteDoc(doc(appState.db, `users/${userId}/goals`, goalId));
+        await secureFetch(`${API_BASE_URL}/goals/${goalId}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${appState.token}` }
+        });
         setAlert('Goal deleted successfully', 'success');
-        loadAdminContent('goals'); // Refresh
+
+        if (appState.currentMainView === 'admin' && isAdmin()) {
+            loadAdminContent('goals');
+        } else {
+            await initializeListeners();
+            renderDashboard();
+        }
     } catch (error) {
         console.error('Error deleting goal:', error);
         setAlert('Failed to delete goal', 'error');
@@ -3907,13 +3930,22 @@ const editObligation = (obligationId, userId) => {
     alert(`Edit obligation: ${obligationId} for user: ${obligationId}`);
 };
 
-const deleteObligation = async (obligationId, userId) => {
+const deleteObligation = async (obligationId) => {
     if (!confirm('Are you sure you want to delete this obligation?')) return;
 
     try {
-        await deleteDoc(doc(appState.db, `users/${userId}/obligations`, obligationId));
+        await secureFetch(`${API_BASE_URL}/obligations/${obligationId}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${appState.token}` }
+        });
         setAlert('Obligation deleted successfully', 'success');
-        loadAdminContent('obligations'); // Refresh
+
+        if (appState.currentMainView === 'admin' && isAdmin()) {
+            loadAdminContent('obligations');
+        } else {
+            await initializeListeners();
+            renderDashboard();
+        }
     } catch (error) {
         console.error('Error deleting obligation:', error);
         setAlert('Failed to delete obligation', 'error');
@@ -3947,10 +3979,11 @@ const sendGoalCompletionAlertEmail = async (goal) => {
     if (!appState.emailAlertsEnabled || !appState.userEmail) return;
 
     try {
-        const response = await fetch(EMAIL_SERVER_URL, {
+        const response = await secureFetch(EMAIL_SERVER_URL, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
+                'Authorization': `Bearer ${appState.token}` // Ensure auth is passed if needed
             },
             body: JSON.stringify({
                 type: 'goalCompleted',

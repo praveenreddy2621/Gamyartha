@@ -382,6 +382,7 @@ async function initializeDatabase() {
                 amount DECIMAL(10, 2) NOT NULL,
                 description TEXT,
                 category VARCHAR(50),
+                type ENUM('expense', 'income', 'settlement') DEFAULT 'expense',
                 split_method ENUM('equal', 'percentage', 'exact', 'settlement') DEFAULT 'equal',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (group_id) REFERENCES expense_groups(id) ON DELETE CASCADE,
@@ -509,6 +510,7 @@ async function initializeDatabase() {
             }
         }
 
+
         // Migration: Ensure group_id column exists in goals
         try {
             await dbConnection.execute(`
@@ -519,6 +521,30 @@ async function initializeDatabase() {
         } catch (error) {
             if (!error.message.includes('Duplicate column name')) {
                 console.error('Migration Error (goals.group_id):', error.message);
+            }
+        }
+
+        // Migration: Ensure payment_mode column exists in recurring_transactions
+        try {
+            await dbConnection.execute(`
+                ALTER TABLE recurring_transactions
+                ADD COLUMN payment_mode ENUM('auto', 'manual') DEFAULT 'auto'
+            `);
+        } catch (error) {
+            if (!error.message.includes('Duplicate column name')) {
+                console.error('Migration Error (recurring_transactions.payment_mode):', error.message);
+            }
+        }
+
+        // Migration: Ensure type column exists in group_expenses
+        try {
+            await dbConnection.execute(`
+                ALTER TABLE group_expenses
+                ADD COLUMN type ENUM('expense', 'income', 'settlement') DEFAULT 'expense'
+            `);
+        } catch (error) {
+            if (!error.message.includes('Duplicate column name')) {
+                console.error('Migration Error (group_expenses.type):', error.message);
             }
         }
 
