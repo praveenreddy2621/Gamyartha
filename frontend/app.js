@@ -2102,6 +2102,14 @@ const renderChatWindow = () => {
     document.getElementById('close-chat-btn').onclick = toggleChat;
     document.getElementById('chat-input-form').onsubmit = handleChatQuery;
 
+    // Reset voice flag if user types manually
+    const chatInput = document.getElementById('chat-input');
+    if (chatInput) {
+        chatInput.oninput = () => {
+            appState.lastInputWasVoice = false;
+        };
+    }
+
     // Voice Assistant / Stop Handler
     document.getElementById('chat-mic-btn').onclick = () => {
         console.log('Mic button clicked');
@@ -2142,6 +2150,7 @@ const renderChatWindow = () => {
             document.getElementById('chat-input').value = speechResult;
             micBtn.classList.remove('animate-pulse', 'bg-red-200');
             // Auto-submit after voice
+            appState.lastInputWasVoice = true; // Flag that this was a voice command
             handleChatQuery({ preventDefault: () => { } });
         };
 
@@ -2280,7 +2289,16 @@ const handleChatQuery = async (e, fixedMessage = null) => {
 
     // 1. Add user message and clear input
     appState.chatHistory.push({ role: 'user', text: queryText });
-    if (input) input.value = '';
+    if (input) {
+        // If the user manually triggered this (not voice auto-submit), reset voice flag
+        // However, handleChatQuery is called by voice too.
+        // If input has value, it might be typed.
+        // We rely on 'input' event listener to clear the flag usually, but let's be safe:
+        if (!appState.lastInputWasVoice) {
+            // ensure it stays false for next time
+        }
+        input.value = '';
+    }
 
     // 2. Set thinking state and re-render
     appState.isChatThinking = true;
@@ -2333,8 +2351,9 @@ const handleChatQuery = async (e, fixedMessage = null) => {
         renderChatWindow();
 
         // --- TITLE: Voice Assistant Feedback ---
-        // Speak the response if the browser supports it
-        if ('speechSynthesis' in window) {
+        // --- TITLE: Voice Assistant Feedback ---
+        // Speak the response Only if the user used voice input
+        if ('speechSynthesis' in window && appState.lastInputWasVoice) {
             // Cancel any previous speech
             window.speechSynthesis.cancel();
 
