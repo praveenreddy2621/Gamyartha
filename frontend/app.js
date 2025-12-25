@@ -137,6 +137,15 @@ const isDueToday = (date) => {
     return due.toDateString() === today.toDateString();
 };
 
+const secureFetch = async (url, options = {}) => {
+    const headers = options.headers || {};
+    if (appState.token) {
+        headers['Authorization'] = `Bearer ${appState.token}`;
+    }
+    const updatedOptions = { ...options, headers };
+    return fetch(url, updatedOptions);
+};
+
 // --- DYNAMIC MODULE LOADER WRAPPERS ---
 // Helper to ensure groups module is loaded before calling its functions
 const openCreateGroupModalWrapper = (type) => {
@@ -2535,9 +2544,12 @@ const waitForElement = (selector, callback) => {
 };
 
 let currentTourStep = 0;
+let tourUserId = null;
 
-const startOnboardingTour = () => {
+const startOnboardingTour = (userId) => {
     currentTourStep = 0;
+    tourUserId = userId || appState.userId;
+    console.log(`Starting onboarding tour for user: ${tourUserId}`);
     showTourStep(currentTourStep);
 };
 
@@ -2598,8 +2610,12 @@ const showTourStep = (stepIndex) => {
 
 const endOnboardingTour = () => {
     D.onboardingContainer.innerHTML = '';
-    if (appState.userId) {
-        localStorage.setItem(`hasVisited_${appState.userId}`, 'true');
+    const userIdToSave = tourUserId || appState.userId;
+    if (userIdToSave) {
+        console.log(`Saving onboarding completion for user: ${userIdToSave}`);
+        localStorage.setItem(`hasVisited_${userIdToSave}`, 'true');
+    } else {
+        console.error("Could not save onboarding completion: No User ID");
     }
 };
 
@@ -2670,7 +2686,7 @@ const handleLogin = async (email, password) => {
         // Check for first-time visit (User specific)
         if (!localStorage.getItem(`hasVisited_${data.user.id}`)) {
             // Add a small delay to ensure the dashboard is fully rendered before starting the tour
-            setTimeout(startOnboardingTour, 500);
+            setTimeout(() => startOnboardingTour(data.user.id), 500);
         }
 
         updateUI(); // Re-render the UI to show the dashboard
@@ -2736,7 +2752,7 @@ const handleCreateAccount = async (email, password) => {
 
         // Start onboarding for new users
         // Add a small delay to ensure the dashboard is fully rendered before starting the tour
-        setTimeout(startOnboardingTour, 500);
+        setTimeout(() => startOnboardingTour(data.user.id), 500);
 
         updateUI(); // Re-render the UI to show the dashboard
     } catch (error) {
@@ -3081,34 +3097,24 @@ const analyzeTransaction = async () => {
     appState.isAnalyzing = true;
     updateUI();
 
-    // Exponential backoff logic would be implemented here for real API calls
     try {
-        const systemPrompt = "You are an expert financial AI assistant (Gamyartha). Analyze the user's transaction description, categorize it accurately for a personal budget tracker (e.g., Groceries, Transport, Bills, Rent, Entertainment, Salary, Loan). Infer the amount if present, otherwise use 0. Provide a concise JSON response.";
-        const userQuery = `Analyze this transaction description in ${appState.currentLanguage}: "${appState.description.trim()}"`;
-
-        const payload = {
-            contents: [{ parts: [{ text: userQuery }] }],
-            systemInstruction: { parts: [{ text: systemPrompt }] },
-            generationConfig: {
-                responseMimeType: "application/json",
-                responseSchema: {
-                    type: "object",
-                    properties: {
-                        category: { type: "STRING", description: "The single best category (e.g., Groceries, Transport, Bills)." },
-                        suggestedAmount: { type: "NUMBER", description: "The amount found in the text, or 0 if none is clear." },
-                        notes: { type: "STRING", description: "A cleaned-up, concise description." }
-                    },
-                    required: ["category", "notes"],
-                    propertyOrdering: ["category", "suggestedAmount", "notes"]
-                }
-            }
-        };
-
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${appState.geminiApiKey}`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+        const response = await secureFetch(`${API_BASE_URL}/analyze`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${appState.token}`
+            },
+            body: JSON.stringify({
+                description: appState.description.trim(),
+                language: appState.currentLanguage
+            })
         });
 
-        if (!response.ok) throw new Error(`API error: ${response.status}`);
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || `API error: ${response.status}`);
+        }
+
         const result = await response.json();
         const jsonText = result.candidates?.[0]?.content?.parts?.[0]?.text;
 
@@ -3122,7 +3128,8 @@ const analyzeTransaction = async () => {
         }
     } catch (error) {
         console.error("AI Analysis Failed:", error);
-        appState.category = T('Analysis Failed');
+        setAlert(T('Analysis Failed') + ": " + error.message, 'error');
+        appState.category = 'Uncategorized';
     } finally {
         appState.isAnalyzing = false;
         updateUI();

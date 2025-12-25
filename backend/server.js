@@ -115,6 +115,69 @@ const mailerUtils = require('./utils/mailer.js');
 // Import the authentication middleware
 const authenticateToken = require('./middleware/auth');
 
+// AI Analysis Endpoint
+app.post('/api/analyze', authenticateToken, async (req, res) => {
+    try {
+        const { description, language } = req.body;
+        if (!process.env.GEMINI_API_KEY) {
+            console.error('GEMINI_API_KEY is missing in server environment variables.');
+            return res.status(500).json({ error: 'Server configuration error: Missing API Key' });
+        }
+
+        if (!description) {
+            return res.status(400).json({ error: 'Description is required' });
+        }
+
+        const lang = language || 'en';
+        const systemPrompt = "You are an expert financial AI assistant (Gamyartha). Analyze the user's transaction description, categorize it accurately for a personal budget tracker (e.g., Groceries, Transport, Bills, Rent, Entertainment, Salary, Loan). Infer the amount if present, otherwise use 0. Provide a concise JSON response.";
+        const userQuery = `Analyze this transaction description in ${lang}: "${description}"`;
+
+        const payload = {
+            contents: [{ parts: [{ text: userQuery }] }],
+            systemInstruction: { parts: [{ text: systemPrompt }] },
+            generationConfig: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: "object",
+                    properties: {
+                        category: { type: "STRING", description: "The single best category (e.g., Groceries, Transport, Bills)." },
+                        suggestedAmount: { type: "NUMBER", description: "The amount found in the text, or 0 if none is clear." },
+                        notes: { type: "STRING", description: "A cleaned-up, concise description." }
+                    },
+                    required: ["category", "notes"],
+                    propertyOrdering: ["category", "suggestedAmount", "notes"]
+                }
+            }
+        };
+
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${process.env.GEMINI_API_KEY}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('Gemini API Error:', errorText);
+            let errorMessage = `Gemini API error: ${response.status}`;
+            try {
+                const errorJson = JSON.parse(errorText);
+                if (errorJson.error && errorJson.error.message) {
+                    errorMessage = errorJson.error.message;
+                }
+            } catch (e) { /* ignore parse error */ }
+            throw new Error(errorMessage);
+        }
+
+        const result = await response.json();
+        res.json(result);
+
+    } catch (error) {
+        console.error("AI Analysis Failed:", error);
+        res.status(500).json({ error: error.message || 'AI Analysis failed' });
+    }
+});
+
 // Initialize AI Report Service
 // Initialize Services
 const aiReportService = new AIReportService(pool);
