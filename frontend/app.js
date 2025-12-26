@@ -2676,6 +2676,11 @@ const handleLogin = async (email, password) => {
         }
 
         if (!response.ok) {
+            if (response.status === 403 && data.verificationRequired) {
+                setAlert(data.error, 'warning');
+                renderVerificationScreen(email);
+                return;
+            }
             throw new Error(data.error || 'Login failed');
         }
 
@@ -2702,11 +2707,7 @@ const handleLogin = async (email, password) => {
 
         await initializeListeners(); // Fetch user data after successful login
 
-        // Check for first-time visit (User specific)
-        if (!localStorage.getItem(`hasVisited_${data.user.id}`)) {
-            // Add a small delay to ensure the dashboard is fully rendered before starting the tour
-            setTimeout(() => startOnboardingTour(data.user.id), 500);
-        }
+
 
         updateUI(); // Re-render the UI to show the dashboard
 
@@ -2751,6 +2752,12 @@ const handleCreateAccount = async (email, password) => {
             throw new Error(data.error || 'Account creation failed');
         }
 
+        if (data.verificationRequired) {
+            setAlert('Verification code sent to your email.', 'success');
+            renderVerificationScreen(email);
+            return;
+        }
+
         // Store token and user data
         appState.token = data.token;
         appState.userId = data.user.id;
@@ -2760,7 +2767,7 @@ const handleCreateAccount = async (email, password) => {
 
         localStorage.setItem('authToken', data.token);
 
-        setAlert('Account created successfully! Welcome email sent.', 'success');
+        setAlert('Account created successfully!', 'success');
 
         // Show welcome message in chat
         const welcomeMessage = T('WELCOME_MESSAGE');
@@ -2770,13 +2777,24 @@ const handleCreateAccount = async (email, password) => {
         await initializeListeners(); // Fetch user data after successful account creation
 
         // Start onboarding for new users
-        // Add a small delay to ensure the dashboard is fully rendered before starting the tour
         setTimeout(() => startOnboardingTour(data.user.id), 500);
 
         updateUI(); // Re-render the UI to show the dashboard
     } catch (error) {
         console.error("Create Account Error:", error.message);
-        setAlert(error.message || 'Account creation failed.', 'error');
+
+        if (error.message && error.message.includes('User already exists')) {
+            setAlert('User already exists. Redirecting to login...', 'info');
+            setTimeout(() => {
+                appState.authView = 'login';
+                renderAuthUI();
+                const emailInput = document.getElementById('auth-email');
+                if (emailInput) emailInput.value = email;
+            }, 1500);
+        } else {
+            setAlert(error.message || 'Account creation failed.', 'error');
+        }
+
         submitBtn.disabled = false;
         submitBtn.textContent = T('CREATE_BUTTON');
     }
@@ -2936,6 +2954,91 @@ const verifyResetCode = async (email) => {
         verifyBtn.disabled = false;
         verifyBtn.textContent = 'Reset Password';
     }
+};
+
+const renderVerificationScreen = (email) => {
+    const authContainer = document.getElementById('main-content');
+    if (!authContainer) return;
+
+    authContainer.innerHTML = `
+        <div class="flex items-center justify-center min-h-[80vh] px-4">
+            <div class="w-full max-w-sm p-8 mt-12 bg-white rounded-xl shadow-2xl border border-gray-100 relative overflow-hidden">
+             
+            <div class="text-center mb-8">
+                <div class="mx-auto w-16 h-16 bg-indigo-100 rounded-full flex items-center justify-center mb-4">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                    </svg>
+                </div>
+                <h2 class="text-3xl font-bold text-gray-900 mb-2">Check your Inbox</h2>
+                <p class="text-gray-500 text-sm">We sent a verification code to <br/><span class="font-semibold text-gray-700">${email}</span></p>
+            </div>
+
+            <form id="verification-form" class="space-y-6">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Verification Code</label>
+                    <input type="text" id="verify-code" placeholder="123456" class="block w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition-colors text-center text-2xl tracking-widest" required />
+                </div>
+
+                <button type="submit" id="verify-btn" class="w-full bg-indigo-600 text-white px-4 py-3 rounded-lg font-bold hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition duration-150 transform hover:-translate-y-0.5 shadow-lg">
+                    Verify Email
+                </button>
+            </form>
+            
+            <button id="back-to-login-btn" class="mt-4 w-full text-center text-sm text-gray-500 hover:text-gray-700">Back to Login</button>
+        </div>
+    </div>
+    `;
+
+    document.getElementById('back-to-login-btn').onclick = () => {
+        appState.authView = 'login';
+        renderAuthUI();
+    };
+
+    document.getElementById('verification-form').onsubmit = async (e) => {
+        e.preventDefault();
+        const code = document.getElementById('verify-code').value.trim();
+        const verifyBtn = document.getElementById('verify-btn');
+        verifyBtn.disabled = true;
+        verifyBtn.textContent = 'Verifying...';
+
+        try {
+            const response = await secureFetch(`${API_BASE_URL}/auth/verify-email`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, code })
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) throw new Error(data.error || 'Verification failed');
+
+            // Success! Log them in
+            setAlert('Email verified! Logging you in...', 'success');
+
+            appState.token = data.token;
+            appState.userId = data.user.id;
+            appState.userEmail = data.user.email;
+            appState.userName = data.user.full_name;
+            appState.isAdmin = data.user.is_admin;
+            localStorage.setItem('authToken', data.token);
+
+            // Init standard post-login flow
+            const welcomeMessage = T('WELCOME_MESSAGE');
+            appState.chatHistory = [{ role: 'model', text: welcomeMessage }];
+            renderChatWindow();
+            await initializeListeners();
+            setTimeout(() => startOnboardingTour(data.user.id), 500); // Start tour here!
+            updateUI();
+
+        } catch (error) {
+            setAlert(error.message, 'error');
+            verifyBtn.disabled = false;
+            verifyBtn.textContent = 'Verify Email';
+        }
+    };
+
+
 };
 
 const handleLogout = async () => {

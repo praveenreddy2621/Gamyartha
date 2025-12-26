@@ -120,6 +120,44 @@ const emailTemplates = {
         };
     },
 
+    verificationCode: (data) => ({
+        from: emailConfig.auth.user,
+        to: data.to_email,
+        subject: 'Verify Your Email - Gamyartha',
+        html: `
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="utf-8">
+                <title>Email Verification</title>
+            </head>
+            <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+                <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+                    <h1 style="color: #4f46e5; text-align: center;">Verify Your Email</h1>
+
+                    <div style="background-color: #eef2ff; border: 1px solid #c7d2fe; padding: 15px; border-radius: 5px; margin: 20px 0;"> 
+                        <p style="margin: 0; color: #4338ca;"><strong>🔒 Verify Account:</strong> Please enter the code below to verify your email address.</p>
+                    </div>
+
+                    <p>Dear ${data.user_name},</p> 
+
+                    <p>Thank you for signing up for Gamyartha! To secure your account, please verify your email address.</p>
+
+                    <div style="background-color: #f8f9fa; border: 1px solid #e5e7eb; padding: 20px; border-radius: 5px; margin: 20px 0; text-align: center;">
+                        <h2 style="margin-top: 0; color: #4338ca; font-size: 24px;">Your Verification Code</h2>
+                        <p style="font-size: 32px; font-weight: bold; color: #1f2937; letter-spacing: 5px; margin: 10px 0;">${data.code}</p>
+                        <p style="margin: 0; font-size: 14px; color: #666;">This code expires in 30 minutes.</p>
+                    </div>
+
+                    <p>Enter this code in the app to complete your registration.</p>
+
+                    <p>Best regards,<br>The Gamyartha Team</p>
+                </div>
+            </body>
+            </html>
+        `
+    }),
+
     transactionAlert: (data) => ({
         from: emailConfig.auth.user,
         to: data.to_email,

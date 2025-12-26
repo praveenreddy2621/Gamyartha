@@ -599,6 +599,19 @@ async function initializeDatabase() {
             }
         }
 
+        // Migration: Add verification columns to users
+        try {
+            await dbConnection.execute(`
+                ALTER TABLE users
+                ADD COLUMN verification_code VARCHAR(10) NULL,
+                ADD COLUMN verification_expires_at TIMESTAMP NULL
+            `);
+        } catch (error) {
+            if (!error.message.includes('Duplicate column name')) {
+                console.error('Migration Error (verification columns):', error.message);
+            }
+        }
+
         // Migration: Ensure type column exists in group_expenses
         try {
             await dbConnection.execute(`
@@ -710,7 +723,7 @@ async function initializeDatabase() {
     }
 }
 
-// User registration (This section was previously inside the AI report route's 'try' block)
+// User registration
 app.post('/api/auth/register', authLimiter, async (req, res) => {
     try {
         const { email, password, full_name } = req.body;
@@ -736,15 +749,19 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
         const saltRounds = 10;
         const passwordHash = await bcrypt.hash(password, saltRounds);
 
-        // Create user
+        // Generate Verification Code
+        const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+        const expiresAt = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes from now
+
+        // Create user (Unverified by default)
         const [result] = await connection.execute(
-            'INSERT INTO users (email, password_hash, full_name) VALUES (?, ?, ?)',
-            [email, passwordHash, full_name || email.split('@')[0]]
+            'INSERT INTO users (email, password_hash, full_name, verification_code, verification_expires_at, email_verified) VALUES (?, ?, ?, ?, ?, FALSE)',
+            [email, passwordHash, full_name || email.split('@')[0], verificationCode, expiresAt]
         );
 
         const userId = result.insertId;
 
-        // Check if this is the first user (make them admin)
+        // Check if this is the first user (make them admin, but still require verification usually, or skip for first user? Let's require verification for consistency)
         const [userCount] = await connection.execute('SELECT COUNT(*) as count FROM users');
         if (userCount[0].count === 1) {
             await connection.execute(
@@ -759,25 +776,100 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
 
         connection.release();
 
-        // Send welcome email
+        // Send Verification Email instead of Welcome Email
         try {
-            await mailerUtils.sendEmail('welcome', { to_email: email, user_name: full_name || email.split('@')[0] });
+            await mailerUtils.sendEmail('verificationCode', {
+                to_email: email,
+                user_name: full_name || email.split('@')[0],
+                code: verificationCode
+            });
         } catch (emailError) {
-            console.error('Welcome email failed:', emailError);
+            console.error('Verification email failed:', emailError);
+            console.log('Fallback Verification Code:', verificationCode); // Log locally if email fails
         }
 
+        console.log(`Development: Verification code for ${email} is ${verificationCode}`);
+
+        // Respond indicating verification is needed (NO TOKEN)
         res.status(201).json({
-            message: 'User registered successfully',
-            user: { id: userId, email, full_name: full_name || email.split('@')[0] }
+            message: 'Verification email sent',
+            verificationRequired: true,
+            email: email,
+            debugCode: verificationCode // Included for testing reliability
         });
 
-        // Award badge for joining
-        gamificationService.checkAndAwardBadges(userId, 'first_login', 1).catch(console.error);
 
 
     } catch (error) {
         console.error('Registration error:', error);
         res.status(500).json({ error: 'Registration failed' });
+    }
+});
+
+// Verify Email Endpoint
+app.post('/api/auth/verify-email', authLimiter, async (req, res) => {
+    try {
+        const { email, code } = req.body;
+        if (!email || !code) return res.status(400).json({ error: 'Email and code required' });
+
+        const connection = await pool.getConnection();
+
+        const [users] = await connection.execute(
+            'SELECT id, email, full_name, is_admin, verification_code, verification_expires_at FROM users WHERE email = ?',
+            [email]
+        );
+
+        if (users.length === 0) {
+            connection.release();
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        const user = users[0];
+
+        // Validate Code
+        if (user.verification_code !== code) {
+            connection.release();
+            return res.status(400).json({ error: 'Invalid verification code' });
+        }
+
+        // Validate Expiry
+        if (new Date() > new Date(user.verification_expires_at)) {
+            connection.release();
+            return res.status(400).json({ error: 'Verification code expired' });
+        }
+
+        // Mark Verified
+        await connection.execute(
+            'UPDATE users SET email_verified = TRUE, verification_code = NULL, verification_expires_at = NULL WHERE id = ?',
+            [user.id]
+        );
+
+        connection.release();
+
+        // Generate Token (Log them in automatically after verification)
+        const token = jwt.sign(
+            { userId: user.id, email: user.email, is_admin: user.is_admin },
+            JWT_SECRET,
+            { expiresIn: '7d' }
+        );
+
+        // Send actual Welcome Email now
+        try {
+            await mailerUtils.sendEmail('welcome', { to_email: user.email, user_name: user.full_name });
+        } catch (e) { }
+
+        // Award Badge
+        gamificationService.checkAndAwardBadges(user.id, 'first_login', 1).catch(console.error);
+
+        res.json({
+            message: 'Email verified successfully',
+            token,
+            user: { id: user.id, email: user.email, full_name: user.full_name, is_admin: user.is_admin }
+        });
+
+    } catch (error) {
+        console.error('Verification error:', error);
+        res.status(500).json({ error: 'Verification failed' });
     }
 });
 
@@ -792,7 +884,7 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
 
         const connection = await pool.getConnection();
         const [users] = await connection.execute(
-            'SELECT id, email, password_hash, full_name, is_admin FROM users WHERE email = ?',
+            'SELECT id, email, password_hash, full_name, is_admin, email_verified FROM users WHERE email = ?',
             [email]
         );
         connection.release();
@@ -806,6 +898,35 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
 
         if (!isValidPassword) {
             return res.status(401).json({ error: 'Invalid credentials' });
+        }
+
+        if (!user.email_verified) {
+            // Auto-resend code logic
+            const newCode = Math.floor(100000 + Math.random() * 900000).toString();
+            const newExpires = new Date(Date.now() + 30 * 60 * 1000);
+
+            await pool.execute(
+                'UPDATE users SET verification_code = ?, verification_expires_at = ? WHERE id = ?',
+                [newCode, newExpires, user.id]
+            );
+
+            console.log(`Debug: Auto-resent verification code to ${user.email}: ${newCode}`);
+
+            try {
+                await mailerUtils.sendEmail('verificationCode', {
+                    to_email: user.email,
+                    user_name: user.full_name || user.email.split('@')[0],
+                    code: newCode
+                });
+            } catch (e) {
+                console.error('Failed to send verification email:', e);
+            }
+
+            return res.status(403).json({
+                error: 'Email not verified. A new verification code has been sent.',
+                verificationRequired: true,
+                debugCode: newCode
+            });
         }
 
         // Generate JWT token
