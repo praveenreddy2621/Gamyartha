@@ -1,4 +1,4 @@
-gamyartha.duckdns.org {
+gamyartha.online, www.gamyartha.online {
     encode gzip
 
     # 1. API Requests - Proxy to backend (Highest Priority)

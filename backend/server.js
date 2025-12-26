@@ -67,7 +67,7 @@ app.use('/api/', apiLimiter);
 
 // CORS Configuration
 const corsOptions = {
-    origin: process.env.NODE_ENV === 'production' ? [process.env.FRONTEND_URL, 'http://gamyartha.duckdns.org', 'https://gamyartha.duckdns.org'] : ['http://localhost:3000', 'http://localhost:3001', 'http://13.233.139.94', 'http://gamyartha.duckdns.org', 'https://gamyartha.duckdns.org'], // Allow local dev, public IP, and DuckDNS
+    origin: process.env.NODE_ENV === 'production' ? [process.env.FRONTEND_URL, 'http://gamyartha.duckdns.org', 'https://gamyartha.duckdns.org', 'https://gamyartha.online', 'https://www.gamyartha.online'] : ['http://localhost:3000', 'http://localhost:3001', 'http://13.233.139.94', 'http://gamyartha.duckdns.org', 'https://gamyartha.duckdns.org', 'https://gamyartha.online'], // Allow local dev, public IP, DuckDNS, and Custom Domain
     optionsSuccessStatus: 200
 };
 app.use(cors(corsOptions));

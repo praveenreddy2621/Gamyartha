@@ -14,8 +14,8 @@ services:
       - DB_PASSWORD=mysecretpassword
       - DB_NAME=gamyartha
       - REDIS_URL=redis://redis:6379
-      - FRONTEND_URL=https://gamyartha.duckdns.org
-      - APP_URL=https://gamyartha.duckdns.org
+      - FRONTEND_URL=https://gamyartha.online
+      - APP_URL=https://gamyartha.online
       - NODE_ENV=production
     depends_on:
       - mysql
