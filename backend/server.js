@@ -46,6 +46,8 @@ app.use(helmet({
 }));
 
 // Rate Limiting
+app.set('trust proxy', 1); // Trust first proxy (required for rate limiting behind load balancers/proxies)
+
 const apiLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
     max: 500, // Increased limit for dev usage
@@ -211,6 +213,7 @@ async function initializeDatabase() {
                 email_verified BOOLEAN DEFAULT FALSE,
                 email_alerts_enabled BOOLEAN DEFAULT TRUE,
                 currency VARCHAR(3) DEFAULT 'INR',
+                last_active_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
             )
@@ -289,6 +292,7 @@ async function initializeDatabase() {
                 amount DECIMAL(15,2) NOT NULL,
                 due_date DATE NOT NULL,
                 is_paid BOOLEAN DEFAULT FALSE,
+                last_reminded_at DATE NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
@@ -621,6 +625,30 @@ async function initializeDatabase() {
         } catch (error) {
             if (!error.message.includes('Duplicate column name')) {
                 console.error('Migration Error (group_expenses.type):', error.message);
+            }
+        }
+
+        // Migration: Add last_active_at to users
+        try {
+            await dbConnection.execute(`
+                ALTER TABLE users
+                ADD COLUMN last_active_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            `);
+        } catch (error) {
+            if (error.code !== 'ER_DUP_FIELDNAME' && !error.message.includes('Duplicate column name')) {
+                console.error('Migration Error (users.last_active_at):', error.message);
+            }
+        }
+
+        // Migration: Add last_reminded_at to obligations
+        try {
+            await dbConnection.execute(`
+                ALTER TABLE obligations
+                ADD COLUMN last_reminded_at DATE NULL
+            `);
+        } catch (error) {
+            if (error.code !== 'ER_DUP_FIELDNAME' && !error.message.includes('Duplicate column name')) {
+                console.error('Migration Error (obligations.last_reminded_at):', error.message);
             }
         }
 

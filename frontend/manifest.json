@@ -3,14 +3,16 @@
     "short_name": "Gamyartha",
     "description": "The best free AI personal finance app in India.",
     "start_url": "/",
+    "scope": "/",
     "display": "standalone",
     "background_color": "#ffffff",
     "theme_color": "#4338ca",
     "icons": [
         {
-            "src": "favicon.png",
-            "sizes": "192x192 512x512",
-            "type": "image/png"
+            "src": "/favicon.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "any maskable"
         }
     ]
 }
