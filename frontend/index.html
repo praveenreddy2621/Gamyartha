@@ -37,6 +37,8 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,600;1,600&display=swap"
+        rel="stylesheet">
 
     <!-- Link External CSS and Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -175,11 +177,11 @@
                         <button id="admin-btn"
                             class="hidden text-xs bg-purple-600 hover:bg-purple-700 px-3 py-1 rounded-full font-medium transition duration-150">Admin</button>
                         <!-- Language Selector (Custom Dropdown) -->
-                        <div class="relative inline-block text-left" id="custom-language-selector">
+                        <div class="relative inline-block text-start" id="custom-language-selector">
                             <button type="button" id="language-menu-btn"
                                 class="inline-flex justify-center items-center rounded-full border border-indigo-500 shadow-sm px-3 py-1 bg-indigo-600 text-xs font-medium text-white hover:bg-indigo-500 focus:outline-none transition-colors">
                                 <span id="current-lang-label">EN</span>
-                                <svg class="-mr-1 ml-1 h-3 w-3" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"
+                                <svg class="-me-1 ms-1 h-3 w-3" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"
                                     fill="currentColor" aria-hidden="true">
                                     <path fill-rule="evenodd"
                                         d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a-1 1 0 010-1.414z"
@@ -188,24 +190,27 @@
                             </button>
 
                             <div id="language-dropdown-menu"
-                                class="hidden origin-top-right absolute right-0 mt-2 w-32 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 focus:outline-none z-50">
+                                class="hidden origin-top-end absolute end-0 mt-2 w-32 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 focus:outline-none z-50">
                                 <div class="py-1" role="menu" aria-orientation="vertical"
                                     aria-labelledby="language-menu-btn">
                                     <button
-                                        class="lang-option w-full text-left block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900"
+                                        class="lang-option w-full text-start block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900"
                                         role="menuitem" data-value="en">English</button>
                                     <button
-                                        class="lang-option w-full text-left block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900"
+                                        class="lang-option w-full text-start block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900"
                                         role="menuitem" data-value="hi">हिन्दी</button>
                                     <button
-                                        class="lang-option w-full text-left block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900"
+                                        class="lang-option w-full text-start block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900"
                                         role="menuitem" data-value="te">తెలుగు</button>
                                     <button
-                                        class="lang-option w-full text-left block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900"
+                                        class="lang-option w-full text-start block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900"
                                         role="menuitem" data-value="ta">தமிழ்</button>
                                     <button
-                                        class="lang-option w-full text-left block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900"
+                                        class="lang-option w-full text-start block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900"
                                         role="menuitem" data-value="kn">ಕನ್ನಡ</button>
+                                    <button
+                                        class="lang-option w-full text-start block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900"
+                                        role="menuitem" data-value="fa">فارسی</button>
                                 </div>
                             </div>
                         </div>
@@ -255,7 +260,8 @@
         <div class="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8 flex flex-col items-center">
 
             <!-- Tagline -->
-            <p class="text-gray-900 font-medium text-sm mb-4">Smart finance, simplified.</p>
+            <p class="text-indigo-900 font-bold text-lg mb-4" style="font-family: 'Playfair Display', serif;">Navigate
+                Your Wealth with Intelligence</p>
 
             <!-- Navigation Links -->
             <div class="flex flex-wrap justify-center gap-6 mb-4 text-xs font-medium text-gray-500">

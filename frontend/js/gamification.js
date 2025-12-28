@@ -16,10 +16,10 @@ export const fetchBadges = async (apiBaseUrl, token) => {
     }
 };
 
-export const renderBadgesView = async (container) => {
+export const renderBadgesView = async (container, T = (k) => k) => {
 
     // Loading state
-    container.innerHTML = `<div class="p-8 text-center text-gray-500">Loading badges...</div>`;
+    container.innerHTML = `<div class="p-8 text-center text-gray-500">${T('GAMIFICATION_LOADING')}</div>`;
 
     // Fetch data
     const badges = await fetchBadges(window.ENV.BACKEND_API + '/api', localStorage.getItem('authToken'));
@@ -28,8 +28,8 @@ export const renderBadgesView = async (container) => {
         container.innerHTML = `
             <div class="text-center py-12">
                 <div class="text-6xl mb-4">🏆</div>
-                <h3 class="text-xl font-bold text-gray-700">No Badges Yet</h3>
-                <p class="text-gray-500 mt-2">Start using the app to earn achievements!</p>
+                <h3 class="text-xl font-bold text-gray-700">${T('GAMIFICATION_NO_BADGES')}</h3>
+                <p class="text-gray-500 mt-2">${T('GAMIFICATION_START_EARNING')}</p>
             </div>
         `;
         return;
@@ -45,9 +45,9 @@ export const renderBadgesView = async (container) => {
             <p class="text-xs text-gray-600 mt-1 h-8 overflow-hidden">${badge.description}</p>
             
             ${isLocked ? `
-                <div class="mt-3 text-xs font-semibold px-2 py-1 bg-gray-200 rounded text-gray-600">Locked</div>
+                <div class="mt-3 text-xs font-semibold px-2 py-1 bg-gray-200 rounded text-gray-600">${T('GAMIFICATION_LOCKED')}</div>
             ` : `
-                <div class="mt-3 text-xs font-bold px-2 py-1 bg-yellow-200 text-yellow-800 rounded">Earned</div>
+                <div class="mt-3 text-xs font-bold px-2 py-1 bg-yellow-200 text-yellow-800 rounded">${T('GAMIFICATION_EARNED')}</div>
                 <p class="text-[10px] text-gray-400 mt-1">on ${new Date(badge.awarded_at).toLocaleDateString()}</p>
             `}
         </div>
@@ -58,8 +58,8 @@ export const renderBadgesView = async (container) => {
             <div class="bg-gradient-to-r from-purple-600 to-indigo-600 rounded-xl p-6 text-white mb-8 shadow-lg">
                 <div class="flex items-center justify-between">
                     <div>
-                        <h2 class="text-2xl font-bold">Your Achievements</h2>
-                        <p class="opacity-90">Level up your financial fitness!</p>
+                        <h2 class="text-2xl font-bold">${T('GAMIFICATION_YOUR_ACHIEVEMENTS')}</h2>
+                        <p class="opacity-90">${T('GAMIFICATION_LEVEL_UP')}</p>
                     </div>
                     <div class="text-4xl font-black opacity-20">🏆</div>
                 </div>
@@ -71,7 +71,7 @@ export const renderBadgesView = async (container) => {
             </div>
 
             <h3 class="text-lg font-bold text-gray-800 mb-4 flex items-center">
-                <span>Earned Badges</span>
+                <span>${T('GAMIFICATION_EARNED_BADGES')}</span>
                 <span class="ml-2 px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded-full">${earnedBadges.length}</span>
             </h3>
             
@@ -79,10 +79,10 @@ export const renderBadgesView = async (container) => {
                 <div class="grid grid-cols-2 md:grid-cols-3 gap-4 mb-8">
                     ${earnedBadges.map(b => renderBadgeCard(b, false)).join('')}
                 </div>
-            ` : `<p class="text-gray-500 mb-8 italic">You haven't earned any badges yet. Keep going!</p>`}
+            ` : `<p class="text-gray-500 mb-8 italic">${T('GAMIFICATION_NO_EARNED_YET')}</p>`}
 
             <h3 class="text-lg font-bold text-gray-800 mb-4 flex items-center">
-                <span>Next Challenges</span>
+                <span>${T('GAMIFICATION_NEXT_CHALLENGES')}</span>
                 <span class="ml-2 px-2 py-0.5 bg-gray-100 text-gray-700 text-xs rounded-full">${lockedBadges.length}</span>
             </h3>
             

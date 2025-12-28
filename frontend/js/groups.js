@@ -10,6 +10,7 @@ export function initGroups(config) {
     API_BASE_URL = config.apiBaseUrl;
     appState = config.appState;
     setAlert = config.setAlert || ((msg, type) => alert(msg));
+    T = config.T || ((key) => key); // Fallback if not provided
 
     // Expose global functions for group actions
     window.showCreateGroupModal = showCreateGroupModal;
@@ -24,28 +25,8 @@ export function initGroups(config) {
 }
 
 // Translation Keys (English/Hindi support ready structure)
-const T = {
-    GROUPS_TITLE: "Groups",
-    CREATE_GROUP: "New Group",
-    ADD_EXPENSE: "Add Expense",
-    SETTLE_UP: "Settle Up",
-    OVERALL_BALANCE: "Overall Balance",
-    YOU_OWE: "You owe",
-    YOU_ARE_OWED: "You are owed",
-    EXPENSES_TAB: "Expenses",
-    BALANCES_TAB: "Balances",
-    NO_GROUPS: "No groups yet.",
-    CREATE_FIRST_GROUP: "Create your first group to start splitting bills!",
-    MEMBER: "member",
-    MEMBERS: "members",
-    PAID_BY: "paid by",
-    NO_EXPENSES: "No expenses recorded in this group yet.",
-    LOADING: "Loading...",
-    EQUAL_SPLIT: "Equally",
-    UNEQUAL_SPLIT: "Unequally",
-    SHARES: "shares",
-    SETTLED_UP: "Settled Up"
-};
+// Translation Function
+let T; // Will be injected via initGroups
 
 // --- INITIALIZATION ---
 
@@ -141,10 +122,10 @@ const renderGroupsView = (container) => {
                  ${appState.selectedGroupId ? 'hidden md:flex' : 'flex'}">
                 <!-- Sidebar Header -->
                 <div class="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
-                    <h2 class="font-bold text-gray-800 text-lg">${T.GROUPS_TITLE}</h2>
+                    <h2 class="font-bold text-gray-800 text-lg">${T('GROUPS_TITLE')}</h2>
                     <button onclick="showCreateGroupModal()" 
                             class="flex items-center gap-2 text-emerald-600 hover:bg-emerald-100 px-3 py-2 rounded-lg transition-colors font-medium text-sm"
-                            title="${T.CREATE_GROUP}">
+                            title="${T('GROUPS_CREATE_GROUP')}">
                         <i class="fas fa-plus"></i> <span class="hidden md:inline">New Group</span>
                     </button>
                 </div>
@@ -171,9 +152,9 @@ const renderGroupsListItems = () => {
         return `
             <div class="p-8 text-center text-gray-400">
                 <i class="fas fa-users text-3xl mb-2"></i>
-                <p class="text-sm">${T.NO_GROUPS}</p>
+                <p class="text-sm">${T('GROUPS_NO_GROUPS')}</p>
                 <button onclick="showCreateGroupModal()" class="mt-4 text-emerald-600 text-sm font-medium hover:underline">
-                    ${T.CREATE_FIRST_GROUP}
+                    ${T('GROUPS_CREATE_FIRST')}
                 </button>
             </div>
         `;
@@ -188,10 +169,10 @@ const renderGroupsListItems = () => {
         let balanceClass = 'text-gray-400';
 
         if (balance > 0) {
-            balanceText = `${T.YOU_ARE_OWED} <span class="font-bold">₹${balance.toFixed(2)}</span>`;
+            balanceText = `${T('GROUPS_YOU_ARE_OWED')} <span class="font-bold">₹${balance.toFixed(2)}</span>`;
             balanceClass = 'text-emerald-600';
         } else if (balance < 0) {
-            balanceText = `${T.YOU_OWE} <span class="font-bold">₹${Math.abs(balance).toFixed(2)}</span>`;
+            balanceText = `${T('GROUPS_YOU_OWE')} <span class="font-bold">₹${Math.abs(balance).toFixed(2)}</span>`;
             balanceClass = 'text-red-500';
         }
 
@@ -259,11 +240,11 @@ const renderOverallSummaryView = () => {
 
                 <div class="grid grid-cols-2 gap-4 w-full mb-8">
                     <div class="bg-white p-4 rounded-xl shadow-sm border border-emerald-100">
-                        <p class="text-xs text-emerald-600 font-medium uppercase mb-1">${T.YOU_ARE_OWED}</p>
+                        <p class="text-xs text-emerald-600 font-medium uppercase mb-1">${T('GROUPS_YOU_ARE_OWED')}</p>
                         <p class="text-2xl font-bold text-emerald-600">₹${totalOwedToYou.toFixed(2)}</p>
                     </div>
                     <div class="bg-white p-4 rounded-xl shadow-sm border border-red-100">
-                        <p class="text-xs text-red-500 font-medium uppercase mb-1">${T.YOU_OWE}</p>
+                        <p class="text-xs text-red-500 font-medium uppercase mb-1">${T('GROUPS_YOU_OWE')}</p>
                         <p class="text-2xl font-bold text-red-500">₹${totalYouOwe.toFixed(2)}</p>
                     </div>
                 </div>
@@ -308,7 +289,7 @@ const renderSelectedGroupView = () => {
                             <button onclick="deleteGroup('${group.id}', '${group.group_name}')" class="text-gray-400 hover:text-red-600 text-sm p-1" title="Delete Group"><i class="fas fa-trash"></i></button>
                         ` : ''}
                      </h2>
-                     <p class="text-xs text-gray-500 mt-1 truncate">${group.member_count} ${T.MEMBERS}</p>
+                     <p class="text-xs text-gray-500 mt-1 truncate">${group.member_count} ${T('GROUPS_MEMBERS')}</p>
                  </div>
             </div>
             <div class="flex space-x-2 shrink-0 ml-2">
@@ -320,11 +301,11 @@ const renderSelectedGroupView = () => {
                 ` : ''}
                 <button onclick="showSettleUpModal('${group.id}', ${myBalance})" 
                         class="px-3 py-2 text-sm font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors border border-gray-300 whitespace-nowrap">
-                    ${T.SETTLED_UP}
+                    ${T('GROUPS_SETTLED_UP')}
                 </button>
                 <button onclick="showAddExpenseModal('${group.id}')" 
                         class="px-4 py-2 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-sm transition-colors flex items-center gap-2 whitespace-nowrap">
-                    <i class="fas fa-receipt"></i> <span class="hidden sm:inline">${T.ADD_EXPENSE}</span>
+                    <i class="fas fa-receipt"></i> <span class="hidden sm:inline">${T('GROUPS_ADD_EXPENSE')}</span>
                 </button>
             </div>
         </div>
@@ -348,7 +329,7 @@ const renderSelectedGroupView = () => {
                      <div class="space-y-3">
                          ${transactions.length > 0 ? transactions.map(t => renderTransactionCard(t)).join('') :
             `<div class="text-center py-10 bg-white rounded-xl border border-dashed border-gray-300 text-gray-400 text-sm">
-                                <i class="fas fa-receipt text-2xl mb-2 opacity-50"></i><br>${T.NO_EXPENSES}
+                                <i class="fas fa-receipt text-2xl mb-2 opacity-50"></i><br>${T('GROUPS_NO_EXPENSES')}
                             </div>`
         }
                      </div>
@@ -368,10 +349,10 @@ const renderSelectedGroupView = () => {
 
 const renderUserGroupStatus = (balance) => {
     if (balance === 0) {
-        return `<div class="flex items-center text-gray-600"><i class="fas fa-check-circle text-emerald-500 mr-2"></i> ${T.SETTLED_UP}</div>`;
+        return `<div class="flex items-center text-gray-600"><i class="fas fa-check-circle text-emerald-500 mr-2"></i> ${T('GROUPS_SETTLED_UP')}</div>`;
     }
     const color = balance > 0 ? 'text-emerald-600' : 'text-red-500';
-    const text = balance > 0 ? T.YOU_ARE_OWED : T.YOU_OWE;
+    const text = balance > 0 ? T('GROUPS_YOU_ARE_OWED') : T('GROUPS_YOU_OWE');
     return `
         <div class="flex items-baseline">
             <span class="${color} text-3xl font-bold mr-2">₹${Math.abs(balance).toFixed(2)}</span>
@@ -571,7 +552,7 @@ const showCreateGroupModal = (type = 'general') => {
     modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4';
     modal.innerHTML = `
         <div class="bg-white rounded-xl shadow-2xl p-6 w-full max-w-md transform transition-all scale-100">
-            <h3 class="text-xl font-bold text-gray-800 mb-4">${type === 'family' ? 'Create Family Group' : T.CREATE_GROUP}</h3>
+            <h3 class="text-xl font-bold text-gray-800 mb-4">${type === 'family' ? 'Create Family Group' : T('GROUPS_CREATE_GROUP')}</h3>
             <form id="create-group-form">
                 <input type="hidden" id="new-group-type" value="${type}">
                 <div class="mb-4">
@@ -715,7 +696,7 @@ const showAddExpenseModal = (groupId) => {
     modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4';
     modal.innerHTML = `
         <div class="bg-white rounded-xl shadow-2xl p-6 w-full max-w-md">
-            <h3 class="text-xl font-bold text-gray-800 mb-4">${T.ADD_EXPENSE}</h3>
+            <h3 class="text-xl font-bold text-gray-800 mb-4">${T('GROUPS_ADD_EXPENSE')}</h3>
             <form id="add-group-expense-form">
                 <input type="hidden" id="expense-group-id" value="${groupId}">
                 <div class="space-y-4">

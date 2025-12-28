@@ -70,6 +70,16 @@ input:checked~.dot {
     border: 1px solid #e5e7eb;
 }
 
+[dir="rtl"] .user-bubble {
+    border-radius: 12px 12px 12px 2px;
+    background-color: #3f51b5;
+    /* Ensure color persists */
+}
+
+[dir="rtl"] .ai-bubble {
+    border-radius: 12px 12px 2px 12px;
+}
+
 /* Admin Panel Styles */
 .admin-tab {
     transition: all 0.2s ease-in-out;
@@ -269,7 +279,8 @@ input:checked~.dot {
 /* FAB Tooltip Styles */
 .fab-tooltip {
     position: absolute;
-    right: 70px;
+    inset-inline-end: 70px;
+    /* Position to the start of the FAB */
     /* Position to the left of the FAB */
     background-color: #ffffff;
     color: #1e3a8a;
