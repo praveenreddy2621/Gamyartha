@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS users (
     email_verified BOOLEAN DEFAULT FALSE,
     email_alerts_enabled BOOLEAN DEFAULT TRUE,
     currency VARCHAR(3) DEFAULT 'INR',
+    last_active_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
@@ -74,6 +75,7 @@ CREATE TABLE IF NOT EXISTS obligations (
     amount DECIMAL(15,2) NOT NULL,
     due_date DATE NOT NULL,
     is_paid BOOLEAN DEFAULT FALSE,
+    last_reminded_at DATE NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
@@ -272,7 +274,7 @@ CREATE TABLE IF NOT EXISTS user_settings (
 CREATE TABLE IF NOT EXISTS notifications (
     id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL,
-    type ENUM('split_reminder', 'payment_received', 'split_completed', 'split_created') NOT NULL,
+    type ENUM('split_reminder', 'payment_received', 'split_completed', 'split_created', 'budget_alert') NOT NULL,
     title VARCHAR(255) NOT NULL,
     message TEXT NOT NULL,
     split_request_id INT,
@@ -447,3 +449,14 @@ INSERT INTO badges (code, name, description, icon, criteria_type, criteria_thres
 ('STREAK_WEEK', '7-Day Streak', 'Logged transactions for 7 consecutive days', '🔥', 'streak_days', 7),
 ('STREAK_MONTH', '30-Day Streak', 'Logged transactions for 30 consecutive days', '⭐', 'streak_days', 30)
 ON DUPLICATE KEY UPDATE name=VALUES(name);
+
+-- Table for user-defined category rules (AI learning)
+CREATE TABLE IF NOT EXISTS category_rules (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    keyword VARCHAR(255) NOT NULL,
+    category VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    INDEX idx_user_keyword (user_id, keyword)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

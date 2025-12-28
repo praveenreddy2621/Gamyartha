@@ -11,11 +11,12 @@ router.get('/', authenticateToken, async (req, res) => {
         const [challenges] = await req.pool.execute(`
             SELECT sc.*, 
                    (SELECT COUNT(*) FROM challenge_participants cp WHERE cp.challenge_id = sc.id) as participant_count,
-                   (SELECT COUNT(*) FROM challenge_participants cp WHERE cp.challenge_id = sc.id AND cp.user_id = ?) as is_joined
+                   (SELECT id FROM challenge_participants cp WHERE cp.challenge_id = sc.id AND cp.user_id = ?) as is_joined,
+                   (SELECT current_score FROM challenge_participants cp WHERE cp.challenge_id = sc.id AND cp.user_id = ?) as current_score
             FROM savings_challenges sc
             WHERE sc.end_date >= CURDATE()
             ORDER BY sc.start_date ASC
-        `, [req.user.id]);
+        `, [req.user.id, req.user.id]);
 
         res.json({ challenges });
     } catch (error) {
@@ -74,10 +75,12 @@ router.get('/:id/leaderboard', authenticateToken, async (req, res) => {
             // Converting enum to actual category string matches might be needed if exact strings differ
         }
 
-        // We want 'lowest_spend' to be at the top of leaderboard
+        const sortOrder = c.winning_criteria === 'lowest_spend' ? 'ASC' : 'DESC';
+
+        // We want participants to be ranked based on the winning criteria
         const query = `
-            SELECT u.id, u.full_name, 
-                   COALESCE(SUM(t.amount), 0) as total_spent
+            SELECT u.id, u.full_name as name, 
+                   COALESCE(SUM(t.amount), 0) as current_score
             FROM challenge_participants cp
             JOIN users u ON cp.user_id = u.id
             LEFT JOIN transactions t ON u.id = t.user_id 
@@ -86,8 +89,8 @@ router.get('/:id/leaderboard', authenticateToken, async (req, res) => {
                 ${categoryFilter}
             WHERE cp.challenge_id = ?
             GROUP BY u.id, u.full_name
-            ORDER BY total_spent ASC
-            LIMIT 10
+            ORDER BY current_score ${sortOrder}
+            LIMIT 50
         `;
 
         const [leaderboard] = await req.pool.execute(query, [startDate, endDate, challengeId]);

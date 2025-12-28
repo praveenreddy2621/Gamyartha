@@ -55,7 +55,7 @@ class BudgetService {
                         END as is_exceeded
                     FROM budgets b
                     LEFT JOIN group_expenses ge ON b.group_id = ge.group_id 
-                        AND b.category = ge.category 
+                        AND LOWER(b.category) = LOWER(ge.category) 
                         AND DATE_FORMAT(ge.created_at, '%Y-%m') = b.month_year
                     WHERE b.group_id = ? 
                         AND b.month_year = ?
@@ -75,7 +75,7 @@ class BudgetService {
                         END as is_exceeded
                     FROM budgets b
                     LEFT JOIN transactions t ON b.user_id = t.user_id 
-                        AND b.category = t.category 
+                        AND LOWER(b.category) = LOWER(t.category) 
                         AND DATE_FORMAT(t.transaction_date, '%Y-%m') = b.month_year
                     WHERE b.user_id = ?
                         AND b.group_id IS NULL
@@ -139,11 +139,11 @@ class BudgetService {
                     COALESCE(SUM(t.amount), 0) as current_spent
                 FROM budgets b
                 LEFT JOIN transactions t ON b.user_id = t.user_id 
-                    AND b.category = t.category 
+                    AND LOWER(b.category) = LOWER(t.category) 
                     AND DATE_FORMAT(t.transaction_date, '%Y-%m') = b.month_year
                     AND t.type = 'expense'
                 WHERE b.user_id = ? 
-                    AND b.category = ? 
+                    AND LOWER(b.category) = LOWER(?) 
                     AND b.month_year = ?
                 GROUP BY b.id`,
                 [userId, category, monthYear]
@@ -156,11 +156,12 @@ class BudgetService {
             const budget = budgets[0];
             const totalSpent = parseFloat(budget.current_spent) + parseFloat(amount);
 
-            if (totalSpent > budget.amount) {
+            if (totalSpent >= budget.amount) {
                 return {
-                    warning: `🚨 You have exceeded your monthly ${category} budget.`,
+                    warning: `🚨 You have ${totalSpent > budget.amount ? 'exceeded' : 'reached'} your monthly ${category} budget.`,
                     budgetAmount: budget.amount,
-                    spentAmount: totalSpent
+                    spentAmount: totalSpent,
+                    type: totalSpent > budget.amount ? 'exceeded' : 'reached'
                 };
             }
 

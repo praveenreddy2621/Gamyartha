@@ -1,229 +1,184 @@
-let API_BASE_URL = '';
-let appState = {};
-let setAlert = () => { };
-
-export const initChallenges = (context) => {
-    API_BASE_URL = context.apiBaseUrl;
-    appState = context.appState;
-    setAlert = context.setAlert;
+export const initChallenges = async (config) => {
+    // No-op for now, or use config if needed
+    console.log("Challenges module initialized");
 };
 
-export const renderChallengesView = async (container) => {
-    container.innerHTML = `
-        <div class="flex justify-center p-8">
-            <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
-        </div>
-    `;
-
+export const fetchChallenges = async (apiBaseUrl, token) => {
     try {
-        const response = await fetch(`${API_BASE_URL}/challenges`, {
-            headers: { 'Authorization': `Bearer ${appState.token}` }
+        const response = await fetch(`${apiBaseUrl}/challenges`, {
+            headers: { 'Authorization': `Bearer ${token}` }
         });
+        if (!response.ok) throw new Error('Failed to fetch challenges');
         const data = await response.json();
-        const challenges = data.challenges || [];
-
-        renderDashboard(container, challenges);
+        return data.challenges;
     } catch (error) {
-        console.error('Error loading challenges:', error);
-        container.innerHTML = `<div class="text-center text-red-500 p-4">Failed to load challenges.</div>`;
+        console.error(error);
+        return [];
     }
 };
 
-const renderDashboard = (container, challenges) => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+export const fetchLeaderboard = async (apiBaseUrl, token, challengeId) => {
+    try {
+        const response = await fetch(`${apiBaseUrl}/challenges/${challengeId}/leaderboard`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (!response.ok) throw new Error('Failed to fetch leaderboard');
+        const data = await response.json();
+        return data.leaderboard;
+    } catch (error) {
+        console.error(error);
+        return [];
+    }
+};
 
-    const active = challenges.filter(c => new Date(c.start_date) <= today);
-    const upcoming = challenges.filter(c => new Date(c.start_date) > today);
+export const joinChallenge = async (apiBaseUrl, token, challengeId) => {
+    try {
+        const response = await fetch(`${apiBaseUrl}/challenges/${challengeId}/join`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Failed to join challenge');
+        return { success: true, message: data.message };
+    } catch (error) {
+        console.error(error);
+        alert(error.message);
+        return { success: false };
+    }
+};
 
-    const renderChallengeCard = (c, isActive) => `
-        <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition relative">
-            ${!isActive ? '<div class="absolute top-0 right-0 bg-yellow-400 text-yellow-900 text-xs font-bold px-2 py-1 rounded-bl-lg">UPCOMING</div>' : '<div class="absolute top-0 right-0 bg-green-500 text-white text-xs font-bold px-2 py-1 rounded-bl-lg">ACTIVE</div>'}
-            <div class="p-6">
-                <div class="flex justify-between items-start mb-4">
+export const renderChallengesView = async (container) => {
+    container.innerHTML = `<div class="p-8 text-center text-gray-500">Loading challenges...</div>`;
+
+    const challenges = await fetchChallenges(window.ENV.BACKEND_API + '/api', localStorage.getItem('authToken'));
+
+    if (challenges.length === 0) {
+        container.innerHTML = `
+            <div class="text-center py-12">
+                <div class="text-6xl mb-4">🎯</div>
+                <h3 class="text-xl font-bold text-gray-700">No Active Challenges</h3>
+                <p class="text-gray-500 mt-2">Check back later for new savings challenges!</p>
+            </div>
+        `;
+        return;
+    }
+
+    const renderChallengeCard = (challenge) => {
+        const isJoined = challenge.is_joined;
+        const daysLeft = Math.ceil((new Date(challenge.end_date) - new Date()) / (1000 * 60 * 60 * 24));
+
+        return `
+        <div class="bg-white p-5 rounded-xl shadow-md border border-gray-100 flex flex-col justify-between h-full transition hover:shadow-lg relative overflow-hidden">
+            ${isJoined ? `<div class="absolute top-0 right-0 bg-green-500 text-white text-xs font-bold px-3 py-1 rounded-bl-lg z-10">Joined</div>` : ''}
+            
+            <div>
+                <div class="flex items-center mb-3">
+                    <div class="bg-indigo-100 p-2 rounded-lg text-indigo-600 mr-3">
+                        <i class="fas fa-trophy text-xl"></i>
+                    </div>
                     <div>
-                        <span class="inline-block px-2 py-1 text-xs font-semibold rounded bg-indigo-100 text-indigo-700 mb-2 uppercase tracking-wide">
-                            ${c.target_category.replace('_', ' ')}
-                        </span>
-                        <h4 class="text-xl font-bold text-gray-900">${c.name}</h4>
+                        <h4 class="font-bold text-gray-800 text-lg leading-tight">${challenge.name}</h4>
+                        <p class="text-xs text-gray-500">${daysLeft > 0 ? `${daysLeft} days left` : 'Ending soon'}</p>
                     </div>
                 </div>
                 
-                <p class="text-gray-600 text-sm mb-4 min-h-[40px]">${c.description}</p>
+                <p class="text-sm text-gray-600 mb-4">${challenge.description}</p>
                 
-                <div class="flex items-center text-xs text-gray-500 mb-6 space-x-4">
-                    <div class="flex items-center">
-                        <svg class="w-4 h-4 mr-1 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
-                        ${new Date(c.start_date).toLocaleDateString()}
-                    </div>
-                    <div class="flex items-center">
-                        <svg class="w-4 h-4 mr-1 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
-                        ${c.participant_count} Joined
-                    </div>
+                <div class="flex items-center text-xs text-gray-500 mb-4 space-x-3">
+                    <span class="flex items-center cursor-pointer hover:text-indigo-600 transition" onclick="window.showLeaderboard(${challenge.id}, '${challenge.name.replace(/'/g, "\\'")}')">
+                        <i class="fas fa-users mr-1"></i> ${challenge.participant_count} joined
+                    </span>
+                    <span class="flex items-center"><i class="fas fa-bullseye mr-1"></i> ${challenge.winning_criteria.replace('_', ' ')}</span>
                 </div>
+            </div>
 
-                ${c.is_joined ? `
-                    <div class="space-y-2">
-                        <button class="w-full bg-green-50 text-green-700 py-2 rounded-lg font-semibold text-sm border border-green-200 cursor-default">
-                             ${isActive ? '✅ Particpating' : '🗓️ Registered'}
+            <div class="space-y-2">
+                ${isJoined ? `
+                    <button disabled class="w-full bg-green-100 text-green-700 font-bold py-2 rounded-lg cursor-default flex items-center justify-center">
+                        <i class="fas fa-check mr-2"></i> Active
+                    </button>
+                    <div class="flex items-center justify-between mt-2">
+                        <span class="text-xs text-gray-500">Score: <span class="font-bold text-gray-700">₹${(challenge.current_score || 0).toLocaleString()}</span></span>
+                        <button onclick="window.showLeaderboard(${challenge.id}, '${challenge.name.replace(/'/g, "\\'")}')" class="text-xs text-indigo-600 hover:text-indigo-800 font-bold transition">
+                             Leaderboard <i class="fas fa-chevron-right ml-1 text-[10px]"></i>
                         </button>
-                        ${isActive ? `
-                        <button onclick="viewLeaderboard(${c.id})" class="w-full bg-indigo-600 text-white py-2 rounded-lg font-semibold text-sm hover:bg-indigo-700 transition">
-                            View Leaderboard 📊
-                        </button>` : `
-                        <button disabled class="w-full bg-gray-100 text-gray-400 py-2 rounded-lg font-semibold text-sm cursor-not-allowed">
-                            Starts Soon ⏳
-                        </button>`}
                     </div>
                 ` : `
-                    <button onclick="joinChallenge(${c.id})" class="w-full bg-gray-900 text-white py-2 rounded-lg font-semibold text-sm hover:bg-gray-800 transition">
-                        ${isActive ? 'Join Late' : 'Pre-Register'}
+                    <button onclick="window.handleJoinChallenge(${challenge.id})" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 rounded-lg transition shadow-md hover:shadow-none">
+                        Join Challenge
+                    </button>
+                    <button onclick="window.showLeaderboard(${challenge.id}, '${challenge.name.replace(/'/g, "\\'")}')" class="w-full mt-2 text-xs text-gray-500 hover:text-indigo-600 transition">
+                        View Leaderboard
                     </button>
                 `}
             </div>
         </div>
-    `;
+        `;
+    };
 
     container.innerHTML = `
-        <div class="space-y-8">
-            <div class="bg-gradient-to-r from-purple-600 to-indigo-600 rounded-xl p-6 text-white shadow-lg">
-                <div class="flex justify-between items-start">
-                    <div>
-                        <h2 class="text-2xl font-bold mb-2">Savings Challenges 🏁</h2>
-                        <p class="text-indigo-100 max-w-xl">
-                            Join community challenges to gamify your savings! Compete with others to see who can spend the least in specific categories.
-                        </p>
-                    </div>
-                    <div class="text-4xl">🏆</div>
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 p-4">
+            ${challenges.map(renderChallengeCard).join('')}
+        </div>
+        
+        <!-- Modal for Leaderboard -->
+        <div id="leaderboard-modal" class="fixed inset-0 bg-black/50 hidden z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+            <div class="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl animate-in fade-in zoom-in duration-300">
+                <div class="bg-indigo-700 p-6 text-white relative">
+                    <h3 id="modal-title" class="text-xl font-bold">Challenge Leaderboard</h3>
+                    <p class="text-indigo-100 text-sm mt-1">Top performers</p>
+                    <button onclick="document.getElementById('leaderboard-modal').classList.add('hidden')" class="absolute top-4 right-4 text-white/80 hover:text-white transition">
+                        <i class="fas fa-times text-xl"></i>
+                    </button>
                 </div>
-            </div>
-
-            ${active.length > 0 ? `
-                <div>
-                    <h3 class="text-lg font-bold text-gray-800 mb-4 flex items-center">
-                        <span class="w-2 h-2 bg-green-500 rounded-full mr-2"></span>
-                        Live Challenges
-                    </h3>
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        ${active.map(c => renderChallengeCard(c, true)).join('')}
-                    </div>
-                </div>
-            ` : ''}
-
-            ${upcoming.length > 0 ? `
-                <div>
-                    <h3 class="text-lg font-bold text-gray-800 mb-4 flex items-center">
-                        <span class="w-2 h-2 bg-yellow-400 rounded-full mr-2"></span>
-                        Upcoming Challenges
-                    </h3>
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        ${upcoming.map(c => renderChallengeCard(c, false)).join('')}
-                    </div>
-                </div>
-            ` : ''}
-            
-            ${challenges.length === 0 ? '<p class="text-gray-500 text-center py-8">No challenges found at this time.</p>' : ''}
-            
-            <!-- Leaderboard Modal Container -->
-            <div id="leaderboard-modal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden flex items-center justify-center p-4">
-                <div class="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden relative">
-                    <button class="absolute top-3 right-3 text-gray-400 hover:text-gray-600" onclick="closeLeaderboard()">✕</button>
-                    <div id="leaderboard-content" class="p-6"></div>
+                <div id="leaderboard-content" class="p-6 max-h-[60vh] overflow-y-auto">
+                    <!-- Leaderboard data will be injected here -->
                 </div>
             </div>
         </div>
     `;
 
-    // Attach globals
-    window.joinChallenge = joinChallenge;
-    window.viewLeaderboard = viewLeaderboard;
-    window.closeLeaderboard = () => {
-        document.getElementById('leaderboard-modal').classList.add('hidden');
-    };
-};
-
-const joinChallenge = async (id) => {
-    if (!confirm('Are you ready to commit to this savings challenge?')) return;
-
-    try {
-        const response = await fetch(`${API_BASE_URL}/challenges/${id}/join`, {
-            method: 'POST',
-            headers: { 'Authorization': `Bearer ${appState.token}` }
-        });
-        const data = await response.json();
-
-        if (response.ok) {
-            setAlert('Successfully joined challenge!', 'success');
-            renderChallengesView(document.getElementById('profile-content')); // Refresh
-        } else {
-            setAlert(data.error || 'Failed to join', 'error');
+    // Expose handlers globally
+    window.handleJoinChallenge = async (id) => {
+        const result = await joinChallenge(window.ENV.BACKEND_API + '/api', localStorage.getItem('authToken'), id);
+        if (result.success) {
+            renderChallengesView(container);
         }
-    } catch (error) {
-        console.error('Join error:', error);
-        setAlert('Network error joining challenge', 'error');
-    }
-};
+    };
 
-const viewLeaderboard = async (id) => {
-    const modal = document.getElementById('leaderboard-modal');
-    const content = document.getElementById('leaderboard-content');
-    modal.classList.remove('hidden');
-    content.innerHTML = '<div class="text-center py-10">Loading leaderboard...</div>';
+    window.showLeaderboard = async (challengeId, challengeName) => {
+        const modal = document.getElementById('leaderboard-modal');
+        const modalTitle = document.getElementById('modal-title');
+        const content = document.getElementById('leaderboard-content');
 
-    try {
-        const response = await fetch(`${API_BASE_URL}/challenges/${id}/leaderboard`, {
-            headers: { 'Authorization': `Bearer ${appState.token}` }
-        });
-        const data = await response.json();
+        modalTitle.innerText = challengeName;
+        content.innerHTML = `<div class="flex justify-center p-8"><i class="fas fa-spinner fa-spin text-2xl text-indigo-600"></i></div>`;
+        modal.classList.remove('hidden');
 
-        if (!response.ok) throw new Error(data.error);
+        const leaderboard = await fetchLeaderboard(window.ENV.BACKEND_API + '/api', localStorage.getItem('authToken'), challengeId);
 
-        const { challenge, leaderboard } = data;
+        if (!leaderboard || leaderboard.length === 0) {
+            content.innerHTML = `<div class="text-center py-8 text-gray-500">No participants yet. Be the first to join!</div>`;
+            return;
+        }
 
         content.innerHTML = `
-            <div class="text-center mb-6">
-                <h3 class="text-xl font-bold text-gray-800">${challenge.name}</h3>
-                <p class="text-xs text-gray-500 uppercase tracking-widest mt-1">Leaderboard</p>
-            </div>
-            
             <div class="space-y-3">
-                ${leaderboard.length === 0 ? '<p class="text-center text-gray-500">No data yet. Be the first to track expenses!</p>' : ''}
-                ${leaderboard.map((user, index) => {
-            const isCurrentUser = user.id === appState.userId;
-            // For privacy, showing First Name + Last Initial for others
-            const displayName = isCurrentUser ?
-                'You' :
-                user.full_name.split(' ')[0] + ' ' + (user.full_name.split(' ')[1]?.[0] || '') + '.';
-
-            const avatarColor = ['bg-red-100 text-red-600', 'bg-blue-100 text-blue-600', 'bg-green-100 text-green-600', 'bg-purple-100 text-purple-600'][index % 4];
-
-            return `
-                    <div class="flex items-center justify-between p-3 rounded-lg ${index < 3 ? 'bg-yellow-50 border border-yellow-100' : 'bg-gray-50'}">
+                ${leaderboard.map((entry, index) => `
+                    <div class="flex items-center justify-between p-3 rounded-lg ${index < 3 ? 'bg-indigo-50 border border-indigo-100' : 'bg-gray-50'}">
                         <div class="flex items-center space-x-3">
-                            <div class="font-bold text-gray-400 w-6 text-center">#${index + 1}</div>
-                            <div class="w-8 h-8 rounded-full ${avatarColor} flex items-center justify-center text-xs font-bold">
-                                ${user.full_name[0]}
-                            </div>
-                            <div>
-                                <div class="font-semibold text-gray-800 ${isCurrentUser ? 'text-indigo-600' : ''}">
-                                    ${displayName}
-                                </div>
-                            </div>
+                            <span class="w-6 h-6 flex items-center justify-center rounded-full font-bold text-sm 
+                                ${index === 0 ? 'bg-yellow-400 text-yellow-900' :
+                index === 1 ? 'bg-gray-300 text-gray-700' :
+                    index === 2 ? 'bg-orange-300 text-orange-900' : 'bg-gray-200 text-gray-500'}">
+                                ${index + 1}
+                            </span>
+                            <span class="font-medium text-gray-800">${entry.name}</span>
                         </div>
-                        <div class="font-mono font-bold text-gray-700">
-                            ₹${user.total_spent}
-                        </div>
+                        <span class="font-bold text-indigo-700">₹${Number(entry.current_score).toLocaleString()}</span>
                     </div>
-                `
-        }).join('')}
+                `).join('')}
             </div>
-            
-            <p class="text-center text-xs text-gray-400 mt-6">
-                * Ranking based on lowest spend in target category during challenge period.
-            </p>
         `;
-
-    } catch (error) {
-        content.innerHTML = '<div class="text-red-500 text-center">Failed to load leaderboard.</div>';
-    }
+    };
 };

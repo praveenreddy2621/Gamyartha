@@ -32,6 +32,10 @@ const auth = async (req, res, next) => {
             currency: users[0].currency
         };
 
+        // Track activity (fire and forget)
+        req.pool.query('UPDATE users SET last_active_at = NOW() WHERE id = ?', [req.user.id])
+            .catch(err => console.error('Error updating last_active_at:', err));
+
         next();
     } catch (error) {
         console.error('Token verification error:', error);

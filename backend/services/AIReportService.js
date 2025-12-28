@@ -233,12 +233,14 @@ class AIReportService {
     }
 
     // Generate system prompt based on mode
-    generateSystemPrompt(mode, language = 'en', groupData = null) {
+    generateSystemPrompt(mode, language = 'en', groupData = null, categoryRules = '') {
         const languageNames = { en: 'English', hi: 'Hindi', te: 'Telugu', ta: 'Tamil', kn: 'Kannada' };
         const currentLangName = languageNames[language] || 'English';
 
+        let prompt = '';
+
         if (mode === 'shared') {
-            return `You are Gamyartha — India's smartest money companion.
+            prompt = `You are Gamyartha — India's smartest money companion.
 
 You ALWAYS run in SHARED LEDGER MODE:
 
@@ -255,7 +257,7 @@ Keep sentences short, clear, and practical.
 Current group balances: ${JSON.stringify(groupData?.balances || [])}
 Suggested settlements: ${JSON.stringify(groupData?.settlements || [])}`;
         } else {
-            return `You are Gamyartha — India's smartest money companion.
+            prompt = `You are Gamyartha — India's smartest money companion.
 
 You ALWAYS run in PRIVATE MODE:
 
@@ -263,11 +265,18 @@ Rules:
 - Only use the USER'S PERSONAL DATA
 - Never talk about groups or other people
 - Give personal finance advice, saving tactics, personal budget optimizations
+- If extracting transactions, prioritize User Categorization Rules.
 
 Language:
 Always reply in simple friendly INDIAN ENGLISH.
 Keep sentences short, clear, and practical.`;
         }
+
+        if (categoryRules) {
+            prompt += `\n\n${categoryRules}`;
+        }
+
+        return prompt;
     }
 }
 

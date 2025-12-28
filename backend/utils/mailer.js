@@ -3,14 +3,15 @@ require('dotenv').config();
 
 // Email configuration
 const emailConfig = {
-    service: 'gmail', // or 'outlook', 'yahoo', etc.
+    host: process.env.EMAIL_HOST || 'smtp.gmail.com',
+    port: process.env.EMAIL_PORT || 587,
+    secure: process.env.EMAIL_PORT == 465, // true for 465, false for other ports
     auth: {
-        user: process.env.EMAIL_USER || '',
-        pass: process.env.EMAIL_PASS || ''
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS
     }
 };
 
-// Create transporter
 const transporter = nodemailer.createTransport(emailConfig);
 
 // Base URL for links (Production URL or Localhost)
@@ -19,7 +20,7 @@ const BASE_URL = process.env.APP_URL || process.env.FRONTEND_URL || `http://loca
 // Email templates
 const emailTemplates = {
     welcome: (data) => ({
-        from: emailConfig.auth.user,
+        from: process.env.EMAIL_FROM || emailConfig.auth.user,
         to: data.to_email,
         subject: 'Welcome to Gamyartha! 🎉',
         html: `
@@ -69,7 +70,7 @@ const emailTemplates = {
 
     passwordReset: (data) => {
         return {
-            from: emailConfig.auth.user,
+            from: process.env.EMAIL_FROM || emailConfig.auth.user,
             to: data.to_email, // Renamed from Gamyartha to Gamyartha
             subject: 'Password Reset Code - Gamyartha',
             html: `
@@ -121,7 +122,7 @@ const emailTemplates = {
     },
 
     verificationCode: (data) => ({
-        from: emailConfig.auth.user,
+        from: process.env.EMAIL_FROM || emailConfig.auth.user,
         to: data.to_email,
         subject: 'Verify Your Email - Gamyartha',
         html: `
@@ -159,7 +160,7 @@ const emailTemplates = {
     }),
 
     transactionAlert: (data) => ({
-        from: emailConfig.auth.user,
+        from: process.env.EMAIL_FROM || emailConfig.auth.user,
         to: data.to_email,
         subject: `Transaction Recorded: ${data.description}`,
         html: `
@@ -205,7 +206,7 @@ const emailTemplates = {
     }),
 
     dueDateAlert: (data) => ({
-        from: emailConfig.auth.user,
+        from: process.env.EMAIL_FROM || emailConfig.auth.user,
         to: data.to_email,
         subject: `Due Date Alert: ${data.description}`,
         html: `
@@ -253,7 +254,7 @@ const emailTemplates = {
     }),
 
     goalCompleted: (data) => ({
-        from: emailConfig.auth.user,
+        from: process.env.EMAIL_FROM || emailConfig.auth.user,
         to: data.to_email,
         subject: `🎉 Goal Achieved: ${data.goalName}`,
         html: `
@@ -301,7 +302,7 @@ const emailTemplates = {
     }),
 
     invite: (data) => ({
-        from: emailConfig.auth.user,
+        from: process.env.EMAIL_FROM || emailConfig.auth.user,
         to: data.to_email,
         subject: `Split Request from ${data.requester_name}`,
         html: `
@@ -351,7 +352,7 @@ const emailTemplates = {
     }),
 
     groupInvite: (data) => ({
-        from: emailConfig.auth.user,
+        from: process.env.EMAIL_FROM || emailConfig.auth.user,
         to: data.to_email,
         subject: `You've been added to "${data.group_name}" group`,
         html: `
@@ -403,7 +404,7 @@ const emailTemplates = {
     }),
 
     income: (data) => ({
-        from: emailConfig.auth.user,
+        from: process.env.EMAIL_FROM || emailConfig.auth.user,
         to: data.to_email,
         subject: `Income Recorded: ${data.description}`,
         html: `
@@ -452,7 +453,7 @@ const emailTemplates = {
     }),
 
     budgetExceeded: (data) => ({
-        from: emailConfig.auth.user,
+        from: process.env.EMAIL_FROM || emailConfig.auth.user,
         to: data.to_email,
         subject: `🚨 Budget Exceeded Alert: ${data.category}`,
         html: `
@@ -504,7 +505,7 @@ const emailTemplates = {
     }),
 
     monthlySummary: (data) => ({
-        from: emailConfig.auth.user,
+        from: process.env.EMAIL_FROM || emailConfig.auth.user,
         to: data.to_email,
         subject: `Your Monthly Financial Summary – ${data.month_name}`,
         html: `
@@ -574,7 +575,7 @@ const emailTemplates = {
     }),
 
     subscriptionRenewed: (data) => ({
-        from: emailConfig.auth.user,
+        from: process.env.EMAIL_FROM || emailConfig.auth.user,
         to: data.to_email,
         subject: `Subscription Renewed: ${data.description}`,
         html: `
@@ -628,10 +629,50 @@ const emailTemplates = {
     }),
 
     generic: (data) => ({
-        from: emailConfig.auth.user,
+        from: process.env.EMAIL_FROM || emailConfig.auth.user,
         to: data.to_email,
         subject: data.subject,
         html: data.html
+    }),
+
+    engagement: (data) => ({
+        from: process.env.EMAIL_FROM || emailConfig.auth.user,
+        to: data.to_email,
+        subject: data.subject,
+        html: `
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="utf-8">
+                <title>${data.subject}</title>
+            </head>
+            <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+                <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+                    <h1 style="color: #6366f1; text-align: center;">${data.title || 'Gamyartha Update'}</h1>
+
+                    <p>Dear ${data.user_name},</p>
+
+                    <p>${data.message}</p>
+                    
+                    ${data.details ? `
+                    <div style="background-color: #eef2ff; border: 1px solid #c7d2fe; padding: 15px; border-radius: 5px; margin: 20px 0;"> 
+                        ${data.details}
+                    </div>` : ''}
+
+                    <div style="text-align: center; margin: 30px 0;">
+                        <a href="${BASE_URL}/" style="background-color: #6366f1; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold;">${data.actionText || 'Open Gamyartha'}</a>
+                    </div>
+
+                    <p>Best regards,<br>The Gamyartha Team</p>
+                    
+                    <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
+                    <p style="font-size: 12px; color: #666; text-align: center;">
+                        This is an automated message.
+                    </p>
+                </div>
+            </body>
+            </html>
+        `
     })
 };
 

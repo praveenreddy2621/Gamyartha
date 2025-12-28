@@ -25,7 +25,8 @@
     "node-schedule": "^2.1.1",
     "nodemailer": "^7.0.10",
     "redis": "^5.10.0",
-    "uuid": "^8.3.2"
+    "uuid": "^8.3.2",
+    "zeptomail": "^7.0.0"
   },
   "devDependencies": {
     "nodemon": "^3.1.11"

@@ -698,7 +698,7 @@ async function initializeDatabase() {
 
         // Insert default badges if they don't exist
         const defaultBadges = [
-            { code: 'FIRST_LOGIN', name: 'Welcome Aboard', description: 'Joined DhanSarthi', icon: '🚀', type: 'login_count', threshold: 1 },
+            { code: 'FIRST_LOGIN', name: 'Welcome Aboard', description: 'Joined Gamyartha', icon: '🚀', type: 'login_count', threshold: 1 },
             { code: 'FIRST_BUDGET', name: 'Planner', description: 'Created your first budget', icon: '📅', type: 'budget_count', threshold: 1 },
             { code: 'SAVER_BRONZE', name: 'Bronze Saver', description: 'Saved ₹1,000 in goals', icon: '🥉', type: 'total_saved', threshold: 1000 },
             { code: 'SAVER_SILVER', name: 'Silver Saver', description: 'Saved ₹10,000 in goals', icon: '🥈', type: 'total_saved', threshold: 10000 },
@@ -1347,19 +1347,33 @@ app.post('/api/transactions', authenticateToken, async (req, res) => {
                 spentAmount: budgetWarning.spentAmount
             };
 
-            // Send budget exceeded email if alerts are enabled
+            // In-App Notification (Database)
+            try {
+                const notifTitle = budgetWarning.type === 'exceeded' ? 'Budget Exceeded 🚨' : 'Budget Reached ⚠️';
+                const notifMsg = budgetWarning.warning;
+                await connection.execute( // Re-acquire connection or just use a new one implies overhead but safe. Ideally re-use from pool.
+                    'INSERT INTO notifications (user_id, type, title, message) VALUES (?, ?, ?, ?)',
+                    [req.user.id, 'budget_alert', notifTitle, notifMsg]
+                );
+            } catch (notifErr) {
+                console.error('Failed to create in-app notification:', notifErr);
+            }
+
+            // Email Notification
             if (userRows.length > 0 && userRows[0].email_alerts_enabled) {
                 const user = userRows[0];
                 try {
-                    await mailerUtils.sendEmail('budgetExceeded', {
+                    await mailerUtils.sendEmail('budgetExceeded', { // Re-using template, maybe customize subject inside mailer if needed or pass warning
                         to_email: user.email,
                         user_name: user.full_name || user.email.split('@')[0],
                         category: category,
                         budgetAmount: budgetWarning.budgetAmount,
-                        spentAmount: budgetWarning.spentAmount
+                        spentAmount: budgetWarning.spentAmount,
+                        // Custom subject/title based on type could be handled in mailer but for now using standard template
+                        subject: budgetWarning.type === 'exceeded' ? `🚨 Budget Exceeded: ${category}` : `⚠️ Budget Reached: ${category}`
                     });
                 } catch (emailError) {
-                    console.error('Budget exceeded email failed:', emailError);
+                    console.error('Budget alert email failed:', emailError);
                 }
             }
         }
@@ -1369,6 +1383,33 @@ app.post('/api/transactions', authenticateToken, async (req, res) => {
     } catch (error) {
         console.error('Add transaction error:', error);
         res.status(500).json({ error: 'Failed to add transaction' });
+    }
+});
+
+
+// Update transaction (specifically for category correction)
+app.post('/api/transactions/:id/update', authenticateToken, async (req, res) => {
+    try {
+        const { category } = req.body;
+        if (!category) {
+            return res.status(400).json({ error: 'Category is required' });
+        }
+
+        const connection = await pool.getConnection();
+        const [result] = await connection.execute(
+            'UPDATE transactions SET category = ? WHERE id = ? AND user_id = ?',
+            [category, req.params.id, req.user.id]
+        );
+        connection.release();
+
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ error: 'Transaction not found' });
+        }
+
+        res.json({ message: 'Transaction updated successfully' });
+    } catch (error) {
+        console.error('Update transaction error:', error);
+        res.status(500).json({ error: 'Failed to update transaction' });
     }
 });
 
@@ -1938,6 +1979,8 @@ Provide specific, actionable advice for each category.
         let contextData = {};
 
         // 3. Fetch data and generate prompt based on the mode
+        const categoryRules = await categoryLearningService.getSystemPromptSupplement(userId);
+
         if (currentMode === 'shared') {
             const groupId = await aiReportService.getCurrentGroup(userId);
             if (!groupId) {
@@ -1951,7 +1994,7 @@ Provide specific, actionable advice for each category.
                 }
             }
             contextData = await aiReportService.getSharedData(groupId);
-            systemPrompt = aiReportService.generateSystemPrompt('shared', language, contextData);
+            systemPrompt = aiReportService.generateSystemPrompt('shared', language, contextData, categoryRules);
         } else { // Private mode
             contextData = await aiReportService.getPrivateData(userId);
             const privateDataString = `
@@ -1959,7 +2002,7 @@ Recent Transactions: ${JSON.stringify(contextData.transactions)}
 Current Budgets: ${JSON.stringify(contextData.budgets)}
 Active Goals: ${JSON.stringify(contextData.goals)}
             `;
-            systemPrompt = aiReportService.generateSystemPrompt('private', language);
+            systemPrompt = aiReportService.generateSystemPrompt('private', language, null, categoryRules);
             // Append data to the user's message for context
             const lastMessage = history[history.length - 1];
             lastMessage.text = `${lastMessage.text}\n\n[My Financial Data for Context]\n${privateDataString}`;
@@ -2179,6 +2222,7 @@ initializeDatabase().then(() => {
     // Initialize Redis
     initRedis().catch(err => console.error('Redis init failed:', err));
 
+
     app.listen(PORT, () => {
         console.log(`Server running on port ${PORT}`);
         console.log(`Frontend /backend available at http://localhost:${PORT}`); // Renamed from Gamyartha to Gamyartha
@@ -2195,6 +2239,36 @@ initializeDatabase().then(() => {
 const ObligationReminderService = require('./services/ObligationReminderService');
 const reminderService = new ObligationReminderService(pool);
 reminderService.scheduleObligationReminders();
+
+// Initialize Category Learning Service
+const CategoryLearningService = require('./services/CategoryLearningService');
+const categoryLearningService = new CategoryLearningService(pool);
+
+// API to learn user category preference
+app.post('/api/learn-category', authenticateToken, async (req, res) => {
+    try {
+        const { keyword, category } = req.body;
+        if (!keyword || !category) {
+            return res.status(400).json({ error: 'Keyword and category are required' });
+        }
+
+        const success = await categoryLearningService.addRule(req.user.id, keyword, category);
+
+        if (success) {
+            res.json({ message: 'Category rule learned successfully' });
+        } else {
+            res.status(500).json({ error: 'Failed to save rule' });
+        }
+    } catch (error) {
+        console.error('Learn category error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// Initialize Engagement Service
+const EngagementService = require('./services/EngagementService');
+const engagementService = new EngagementService(pool);
+engagementService.startScheduler();
 
 // Start the monthly summary service
 const MonthlySummaryService = require('./services/MonthlySummaryService');

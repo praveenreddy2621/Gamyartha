@@ -317,6 +317,23 @@ const renderHeaderDetails = () => {
                 <button id="groups-btn" class="ml-1 text-xs ${familyBtnClass} text-white px-3 py-1 rounded-full font-medium transition duration-150" title="${familyBtnText}">
                     <i class="fas fa-users mr-1"></i> ${familyBtnLabel}
                 </button>
+                <div id="notification-container" class="relative inline-block text-left ml-1 hidden">
+                    <button id="notification-btn" class="text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-700 px-3 py-1 rounded-full font-medium transition duration-150 relative border border-indigo-200" title="Notifications">
+                        <i class="fas fa-bell"></i>
+                        <span id="notification-badge" class="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] rounded-full h-4 w-4 flex items-center justify-center hidden">0</span>
+                    </button>
+                    <!-- Dropdown -->
+                    <div id="notifications-dropdown" class="hidden absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-xl overflow-hidden z-50 border border-gray-100 ring-1 ring-black ring-opacity-5">
+                        <div class="bg-gray-50 px-4 py-2 border-b border-gray-100 flex justify-between items-center">
+                            <span class="text-xs font-semibold text-gray-700">Notifications</span>
+                            <button id="mark-all-read-btn" class="text-xs text-indigo-600 hover:text-indigo-800 font-medium">Mark all read</button>
+                        </div>
+                        <div id="notifications-list" class="max-h-80 overflow-y-auto divide-y divide-gray-50">
+                            <div class="p-4 text-center text-gray-500 text-xs">Loading...</div>
+                        </div>
+                    </div>
+                </div>
+
                 ${groupSelectorHtml}
                 <button id="wealth-btn" class="ml-1 text-xs bg-yellow-500 hover:bg-yellow-600 text-white px-3 py-1 rounded-full font-medium transition duration-150" title="Net Worth & Assets">
                     💰
@@ -325,6 +342,11 @@ const renderHeaderDetails = () => {
                     📅
                 </button>
             `;
+
+    // Initialize Notifications (if script is loaded)
+    if (window.initNotifications) {
+        window.initNotifications();
+    }
 
     document.getElementById('view-toggle-btn').onclick = () => {
         appState.currentMainView = newView;
@@ -1312,10 +1334,7 @@ const renderTransactionForm = () => {
                             <label for="description-input" class="block text-sm font-medium text-gray-700">${T('DESCRIPTION_LABEL')}</label>
                             <div class="flex space-x-1 sm:space-x-2">
                                 <button type="button" id="voice-entry-btn" class="mt-1 flex-shrink-0 px-3 py-2 bg-indigo-100 text-indigo-700 rounded-md hover:bg-indigo-200 transition duration-150 text-sm">
-                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                        <path d="M7 4a3 3 0 016 0v6a3 3 0 11-6 0V4z" />
-                                        <path d="M5.5 13.5A4.5 4.5 0 0010 18v-2.5a2.5 2.5 0 01-5 0V13.5zM10 18a4.5 4.5 0 004.5-4.5V13.5a2.5 2.5 0 01-5 0V18zM14.5 13.5a2.5 2.5 0 01-5 0V18a4.5 4.5 0 004.5-4.5z" />
-                                    </svg>
+                                    <i class="fas fa-microphone h-5 w-5 flex items-center justify-center"></i>
                                 </button>
                                 <input
                                     id="description-input" type="text" value="${appState.description}"
@@ -1871,7 +1890,11 @@ const renderTransactionHistory = () => {
                             <div>
                                 <p class="font-semibold text-gray-800 line-clamp-1">${t.description}</p>
                                 <p class="text-xs text-gray-500 mt-0.5">
-                                    <span class="font-bold text-indigo-700 mr-2">[${t.category || 'Uncategorized'}]</span>
+                                    <span class="font-bold text-indigo-700 mr-2 cursor-pointer hover:underline hover:text-indigo-900" 
+                                          onclick="event.stopPropagation(); window.correctCategory('${t.id}', '${t.category || 'Uncategorized'}', '${t.description.replace(/'/g, "\\'")}')" 
+                                          title="Click to correct category">
+                                        [${t.category || 'Uncategorized'}]
+                                    </span>
                                     ${t.timestamp.toLocaleDateString()}
                                 </p>
                                 ${t.isBusiness && !isIncome ? `<p class="text-xs text-yellow-700 font-medium">Business: GST ₹${(t.gstAmount || 0).toFixed(0)}</p>` : ''}
@@ -5316,4 +5339,53 @@ window.onload = () => {
 
     // Initialize app
     initializeAppAndAuth();
+};
+
+window.correctCategory = async (id, oldCategory, description) => {
+    const newCategory = prompt(`Current Category: ${oldCategory}\n\nEnter new category for this transaction:`, oldCategory);
+
+    if (!newCategory || newCategory.trim() === '' || newCategory === oldCategory) return;
+
+    const category = newCategory.trim();
+
+    // 1. Update the specific transaction
+    try {
+        const response = await secureFetch(`${API_BASE_URL}/transactions/${id}/update`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${appState.token}` },
+            body: JSON.stringify({ category: category })
+        });
+
+        if (!response.ok) throw new Error('Failed to update transaction');
+
+        // Update local state
+        const txn = appState.transactions.find(t => t.id == id);
+        if (txn) txn.category = category;
+
+        setAlert('Category updated!', 'success');
+        updateUI();
+
+    } catch (error) {
+        console.error('Error updating category:', error);
+        setAlert('Failed to update category.', 'error');
+        return;
+    }
+
+    // 2. Ask to learn
+    if (confirm(`Do you want AI to remember this rule?\n\n"${description}" -> "${category}"`)) {
+        try {
+            await secureFetch(`${API_BASE_URL}/learn-category`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${appState.token}` },
+                body: JSON.stringify({
+                    keyword: description, // Sending full description as keyword for now, or ask user for keyword
+                    category: category
+                })
+            });
+            setAlert('AI has learned this rule!', 'success');
+        } catch (error) {
+            console.error('Error learning rule:', error);
+            // Don't alert error here to not annoy user if main action succeeded
+        }
+    }
 };
