@@ -1,5 +1,5 @@
 {
-    "name": "Gamyartha - AI Financial Advisor",
+    "name": "Gamyartha - AI Financial Companion",
     "short_name": "Gamyartha",
     "description": "The best free AI personal finance app in India.",
     "start_url": "/",
@@ -8,7 +8,7 @@
     "theme_color": "#4338ca",
     "icons": [
         {
-            "src": "/favicon.png",
+            "src": "favicon.png",
             "sizes": "192x192 512x512",
             "type": "image/png"
         }
