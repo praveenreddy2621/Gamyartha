@@ -26,6 +26,67 @@ class RecurringTransactionService {
         }
     }
 
+    async sendUpcomingReminders() {
+        try {
+            const connection = await this.pool.getConnection();
+            const tomorrow = new Date();
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            const tomorrowStr = tomorrow.toISOString().slice(0, 10);
+
+            // Find transactions due tomorrow
+            const [upcomingTxns] = await connection.execute(
+                `SELECT * FROM recurring_transactions 
+                 WHERE is_active = TRUE AND next_due_date = ?`,
+                [tomorrowStr]
+            );
+
+            console.log(`Checking upcoming reminders: Found ${upcomingTxns.length} due tomorrow.`);
+
+            for (const txn of upcomingTxns) {
+                // Get user
+                const [users] = await connection.execute(
+                    'SELECT email, full_name, email_alerts_enabled FROM users WHERE id = ?',
+                    [txn.user_id]
+                );
+
+                if (users.length > 0) {
+                    const user = users[0];
+                    const notificationTitle = txn.payment_mode === 'auto' ? 'Upcoming Auto-Debit' : 'Payment Due Tomorrow';
+                    const notificationMsg = txn.payment_mode === 'auto'
+                        ? `Tomorrow: ${txn.description} (₹${txn.amount}) will be auto-debited.`
+                        : `Reminder: ${txn.description} (₹${txn.amount}) is due tomorrow.`;
+
+                    // In-App Notification
+                    await connection.execute(
+                        `INSERT INTO notifications (user_id, type, title, message) 
+                         VALUES (?, 'upcoming_payment', ?, ?)`,
+                        [txn.user_id, notificationTitle, notificationMsg]
+                    );
+
+                    // Email
+                    if (user.email_alerts_enabled) {
+                        try {
+                            const mailerUtils = require('../utils/mailer');
+                            // Reuse dueDateAlert but contextually it works for "Due Date" which is tomorrow
+                            await mailerUtils.sendEmail('dueDateAlert', {
+                                to_email: user.email,
+                                user_name: user.full_name,
+                                description: txn.description,
+                                amount: txn.amount,
+                                dueDate: txn.next_due_date
+                            });
+                        } catch (e) {
+                            console.error('Failed to send upcoming reminder email:', e);
+                        }
+                    }
+                }
+            }
+            connection.release();
+        } catch (error) {
+            console.error('Error sending upcoming reminders:', error);
+        }
+    }
+
     async processDueTransactions() {
         try {
             const connection = await this.pool.getConnection();

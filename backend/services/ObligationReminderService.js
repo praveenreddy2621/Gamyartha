@@ -33,7 +33,7 @@ class ObligationReminderService {
                     FROM obligations o
                     JOIN users u ON o.user_id = u.id
                     WHERE o.is_paid = FALSE
-                      AND o.due_date = CURDATE()
+                      AND o.due_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 1 DAY)
                       AND u.email_alerts_enabled = TRUE
                       AND (o.last_reminded_at IS NULL OR o.last_reminded_at != CURDATE())
                 `);
@@ -83,10 +83,16 @@ class ObligationReminderService {
             // We need user_id. The previous query joined users but didn't select user_id.
             // Let's assume the caller will fix the query.
             if (obligation.user_id) {
+                const isDueTomorrow = new Date(obligation.dueDate) > new Date();
+                const title = isDueTomorrow ? 'Bill Due Tomorrow' : 'Bill Due Today';
+                const message = isDueTomorrow
+                    ? `Upcoming Bill: ${obligation.description} (${obligation.amount}) is due tomorrow.`
+                    : `Reminder: Your bill for ${obligation.description} (${obligation.amount}) is due today.`;
+
                 await connection.query(
                     `INSERT INTO notifications (user_id, type, title, message) 
-                     VALUES (?, 'obligation_due', 'Bill Due Today', ?)`,
-                    [obligation.user_id, `Reminder: Your bill for ${obligation.description} (${obligation.amount}) is due today.`]
+                     VALUES (?, 'obligation_due', ?, ?)`,
+                    [obligation.user_id, title, message]
                 );
             }
         } catch (e) {

@@ -75,14 +75,26 @@ const getOrSet = async (key, ttlSeconds, fetcher) => {
 };
 
 // Helper to invalidate cache
+// Helper to invalidate cache (supports patterns)
 const invalidate = async (keyPattern) => {
     if (!client || !isRedisAvailable || !client.isOpen) return;
 
     try {
-        // For simplicity in this project:
-        await client.del(keyPattern);
+        if (keyPattern.includes('*')) {
+            // Use SCAN to find keys matching pattern
+            const keys = [];
+            for await (const key of client.scanIterator({ MATCH: keyPattern, COUNT: 100 })) {
+                keys.push(key);
+            }
+            if (keys.length > 0) {
+                await client.del(keys);
+                console.log(`🗑️ Invalidated ${keys.length} keys matching ${keyPattern}`);
+            }
+        } else {
+            await client.del(keyPattern);
+        }
     } catch (error) {
-        // console.error(`Redis deletion error for ${keyPattern}:`, error);
+        console.error(`Redis deletion error for ${keyPattern}:`, error);
     }
 };
 

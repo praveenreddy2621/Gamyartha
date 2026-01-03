@@ -111,10 +111,21 @@ router.post('/create', auth, async (req, res) => {
                                 group_name: group_name,
                                 creator_name: creatorName
                             });
+
+                            // Add in-app notification
+                            await connection.query(
+                                'INSERT INTO notifications (user_id, type, title, message) VALUES (?, ?, ?, ?)',
+                                [
+                                    userId,
+                                    'group_invite',
+                                    'New Group Invitation',
+                                    `You have been added to the group "${group_name}" by ${creatorName}.`
+                                ]
+                            );
                         }
                     } catch (emailError) {
                         console.error(`Failed to send group invite email to user ${userId}:`, emailError);
-                        // Don't fail the group creation if email fails
+                        // Don't fail the group creation if email/notification fails
                     }
                 });
 
@@ -232,6 +243,47 @@ router.post('/split', auth, async (req, res) => {
                     'UPDATE group_balances SET net_balance = net_balance - ? WHERE group_id = ? AND user_id = ?',
                     [splitAmount, group_id, memberUserId]
                 );
+
+                // --- NOTIFICATION Logic for Split ---
+                // Get member email/name for notification
+                try {
+                    const [userRows] = await connection.query('SELECT email, full_name, email_alerts_enabled FROM users WHERE id = ?', [memberUserId]);
+                    if (userRows.length > 0) {
+                        const memberUser = userRows[0];
+                        const memberName = memberUser.full_name || memberUser.email.split('@')[0];
+
+                        // 1. In-App Notification
+                        await connection.query(
+                            'INSERT INTO notifications (user_id, type, title, message) VALUES (?, ?, ?, ?)',
+                            [
+                                memberUserId,
+                                'expense_added',
+                                'New Group Expense',
+                                `A new expense "${description}" of ₹${amount} was added to group. Your share is ₹${splitAmount.toFixed(2)}.`
+                            ]
+                        );
+
+                        // 2. Email Alert (reuse an existing template or simple generic one if 'splitRequest' isn't explicitly defined in mailer for this flow, but 'invite' template is close or we use 'transactionAlert' meant for user's own txns?)
+                        // User asked for ALERTS. Let's use a generic 'expenseSplit' if possible, or 'transactionAlert' adapted? 
+                        // Actually, 'invite' template in mailer.js says "Split Request from...". Let's use that!
+                        // "invite" template data needs: requester_name, description, amount_owed
+
+                        // Fetch requester name
+                        const [requesterRows] = await connection.query('SELECT full_name, email FROM users WHERE id = ?', [req.user.id]);
+                        const requesterName = requesterRows[0]?.full_name || 'A group member';
+
+                        if (memberUser.email_alerts_enabled) {
+                            await sendEmail('invite', {  // Using 'invite' template which is styled for "Split Request"
+                                to_email: memberUser.email,
+                                requester_name: requesterName,
+                                description: description,
+                                amount_owed: splitAmount.toFixed(2)
+                            });
+                        }
+                    }
+                } catch (notifError) {
+                    console.error('Failed to send split notification:', notifError);
+                }
             }
 
             // The payer is credited for the amount they paid, minus their own share.

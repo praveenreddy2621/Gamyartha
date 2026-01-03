@@ -91,6 +91,26 @@ const BudgetService = require('./services/BudgetService');
 const AIReportService = require('./services/AIReportService');
 const GamificationService = require('./services/GamificationService');
 const RecurringTransactionService = require('./services/RecurringTransactionService');
+const ObligationReminderService = require('./services/ObligationReminderService'); // Import Obligation Service
+
+// Initialize and Start Schedulers
+const obligationReminderService = new ObligationReminderService(pool);
+obligationReminderService.scheduleObligationReminders();
+console.log('✅ ObligationReminderService scheduled.');
+
+// Start Recurring Transaction Scheduler (if not already started inside service, which we should check)
+// Assuming RecurringTransactionService needs manual scheduling trigger or runs on its own? 
+// Checking RecurringTransactionService code: it has processDueTransactions but no internal scheduler in 'constructor'.
+// It seems we need to schedule it. Let's add a schedule block for it too if needed, but for now let's focus on Obligation.
+// Actually, looking at RecurringTransactionService, it has 'processDueTransactions' but no 'schedule' method.
+// We probably need to schedule that too. Let's do it right here using node-schedule.
+const schedule = require('node-schedule');
+schedule.scheduleJob('0 9 * * *', async () => { // Run daily at 9 AM
+    console.log('Running daily recurring transaction check...');
+    const recurringService = new RecurringTransactionService(pool);
+    await recurringService.processDueTransactions();
+    await recurringService.sendUpcomingReminders(); // Check for tomorrow's bills
+});
 
 // Routes
 const splitsRouter = require('./routes/splits');
@@ -769,6 +789,45 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
         );
 
         if (existingUsers.length > 0) {
+            const existingUser = existingUsers[0];
+            // If user exists but is NOT verified (placeholder or unfinished signup), allow "claiming" the account
+            if (!existingUser.email_verified) {
+                console.log(`Resuming registration for unverified/placeholder user: ${email}`);
+
+                // Update the existing user record instead of inserting new
+                // Hash password
+                const saltRounds = 10;
+                const passwordHash = await bcrypt.hash(password, saltRounds);
+
+                // Generate Verification Code
+                const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+                const expiresAt = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes
+
+                await connection.execute(
+                    'UPDATE users SET password_hash = ?, full_name = ?, verification_code = ?, verification_expires_at = ? WHERE id = ?',
+                    [passwordHash, full_name || email.split('@')[0], verificationCode, expiresAt, existingUser.id]
+                );
+
+                connection.release();
+
+                // Send Verification Email
+                try {
+                    await mailerUtils.sendEmail('verificationCode', {
+                        to_email: email,
+                        user_name: full_name || email.split('@')[0],
+                        code: verificationCode
+                    });
+                } catch (emailError) {
+                    console.error('Verification email failed:', emailError);
+                }
+
+                return res.status(201).json({
+                    message: 'Verification email sent (Account updated)',
+                    verificationRequired: true,
+                    email: email
+                });
+            }
+
             connection.release();
             return res.status(409).json({ error: 'User already exists' });
         }
@@ -977,6 +1036,7 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
                 );
 
                 for (const obligation of dueObligations) {
+                    // Send Email
                     await mailerUtils.sendEmail('dueDateAlert', {
                         to_email: user.email,
                         user_name: user.full_name || user.email.split('@')[0],
@@ -984,6 +1044,17 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
                         amount: obligation.amount,
                         dueDate: obligation.due_date
                     });
+
+                    // Add In-App Notification
+                    await connection.execute(
+                        'INSERT INTO notifications (user_id, type, title, message) VALUES (?, ?, ?, ?)',
+                        [
+                            user.id,
+                            'obligation_due',
+                            'Bill Due Today',
+                            `Reminder: Your bill for ${obligation.description} (${obligation.amount}) is due today.`
+                        ]
+                    );
                 }
             } catch (alertError) {
                 console.error('Login obligation alert failed:', alertError);
@@ -1406,6 +1477,10 @@ app.post('/api/transactions', authenticateToken, async (req, res) => {
             }
         }
 
+        // Invalidate cache for transactions and monthly summary
+        await invalidate(`transactions:${req.user.id}:*`);
+        await invalidate(`monthlyStart:${req.user.id}:*`); // If you stick to this naming/pattern
+
         res.status(201).json(response);
 
     } catch (error) {
@@ -1434,6 +1509,8 @@ app.post('/api/transactions/:id/update', authenticateToken, async (req, res) => 
             return res.status(404).json({ error: 'Transaction not found' });
         }
 
+        await invalidate(`transactions:${req.user.id}:*`);
+
         res.json({ message: 'Transaction updated successfully' });
     } catch (error) {
         console.error('Update transaction error:', error);
@@ -1455,6 +1532,8 @@ app.delete('/api/transactions/:id', authenticateToken, async (req, res) => {
             return res.status(404).json({ error: 'Transaction not found' });
         }
 
+        await invalidate(`transactions:${req.user.id}:*`);
+
         res.json({ message: 'Transaction deleted successfully' });
     } catch (error) {
         console.error('Delete transaction error:', error);
@@ -1471,6 +1550,8 @@ app.delete('/api/transactions', authenticateToken, async (req, res) => {
             [req.user.id]
         );
         connection.release();
+
+        await invalidate(`transactions:${req.user.id}:*`);
 
         res.json({ message: 'All transactions cleared successfully' });
     } catch (error) {
