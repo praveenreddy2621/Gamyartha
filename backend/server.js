@@ -672,6 +672,21 @@ async function initializeDatabase() {
             }
         }
 
+        // Migration: Add split_request_id to notifications (used by ReminderService & Challenges)
+        try {
+            await dbConnection.execute(`
+                ALTER TABLE notifications
+                ADD COLUMN split_request_id INT NULL DEFAULT NULL,
+                ADD FOREIGN KEY (split_request_id) REFERENCES split_requests(id) ON DELETE CASCADE
+            `);
+        } catch (error) {
+            // Ignore if column exists
+            if (error.code !== 'ER_DUP_FIELDNAME' && !error.message.includes('Duplicate column name')) {
+                // It might fail on FK if table doesn't exist, but split_requests is created above.
+                console.log('Migration Note (notifications.split_request_id):', error.message);
+            }
+        }
+
         // --- Create Challenges Tables (if they don't exist) ---
         await dbConnection.execute(`
             CREATE TABLE IF NOT EXISTS savings_challenges (
