@@ -2359,11 +2359,6 @@ initializeDatabase().then(() => {
 });
 
 
-// Start the reminder service after the server starts
-const ObligationReminderService = require('./services/ObligationReminderService');
-const reminderService = new ObligationReminderService(pool);
-reminderService.scheduleObligationReminders();
-
 // Initialize Category Learning Service
 const CategoryLearningService = require('./services/CategoryLearningService');
 const categoryLearningService = new CategoryLearningService(pool);
